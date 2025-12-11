@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Minimal WebGPU Test</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #ccc;
+    }
+    #controls {
+      padding: 6px 10px;
+      background: #111;
+      border-bottom: 1px solid #222;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    #canvas-wrap {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #000;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      border: 1px solid #222;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <span>Minimal WebGPU test</span>
+    <span id="status">Initializing…</span>
+  </div>
+  <div id="canvas-wrap">
+    <canvas id="gfx"></canvas>
+  </div>
+
+  <script type="module">
+    const canvas = document.getElementById('gfx');
+    const statusEl = document.getElementById('status');
+
+    async function init() {
+      try {
+        if (!('gpu' in navigator)) {
+          statusEl.textContent = 'navigator.gpu is not available (no WebGPU).';
+          return;
+        }
+
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) {
+          statusEl.textContent = 'Failed to get GPU adapter.';
+          return;
+        }
+
+        const device = await adapter.requestDevice();
+        const context = canvas.getContext('webgpu');
+        const format = navigator.gpu.getPreferredCanvasFormat();
+
+        function resizeCanvas() {
+          const dpr = window.devicePixelRatio || 1;
+          const rect = canvas.getBoundingClientRect();
+          canvas.width = Math.floor(rect.width * dpr);
+          canvas.height = Math.floor(rect.height * dpr);
+          context.configure({
+            device,
+            format,
+            alphaMode: 'premultiplied',
+          });
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Simple fullscreen triangle: no uniforms, no depth, no loops
+        const shaderCode = /* wgsl */`
+struct VSOut {
+  @builtin(position) pos : vec4<f32>,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
+  var positions = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -3.0),
+    vec2<f32>( 3.0,  1.0),
+    vec2<f32>(-1.0,  1.0)
+  );
+
+  var out : VSOut;
+  out.pos = vec4<f32>(positions[vid], 0.0, 1.0);
+  return out;
+}
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+  // Solid red: if you don't see red, the pipeline isn't drawing.
+  return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+}
+        `;
+
+        const module = device.createShaderModule({ code: shaderCode });
+
+        const pipeline = device.createRenderPipeline({
+          layout: 'auto',
+          vertex: {
+            module,
+            entryPoint: 'vs_main',
+          },
+          fragment: {
+            module,
+            entryPoint: 'fs_main',
+            targets: [{ format }],
+          },
+          primitive: {
+            topology: 'triangle-list',
+          },
+        });
+
+        function frame() {
+          const encoder = device.createCommandEncoder();
+          const textureView = context.getCurrentTexture().createView();
+
+          const pass = encoder.beginRenderPass({
+            colorAttachments: [{
+              view: textureView,
+              clearValue: { r: 0, g: 0, b: 0, a: 1 },
+              loadOp: 'clear',
+              storeOp: 'store',
+            }],
+          });
+
+          pass.setPipeline(pipeline);
+          pass.draw(3, 1, 0, 0);
+          pass.end();
+
+          device.queue.submit([encoder.finish()]);
+          requestAnimationFrame(frame);
+        }
+
+        statusEl.textContent = 'WebGPU OK – should show solid red.';
+        requestAnimationFrame(frame);
+
+      } catch (e) {
+        console.error(e);
+        statusEl.textContent = 'Error: ' + (e && e.message ? e.message : e);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

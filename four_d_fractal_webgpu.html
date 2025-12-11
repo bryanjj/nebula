@@ -67,7 +67,7 @@
       <option value="3">x: Re(z0), y: Im(z0), z: Im(c), slider: Re(c)</option>
     </select>
 
-    <span class="label">Slider</span>
+    <span class="label" id="sliderLabel">Im(c)</span>
     <input id="slider" type="range" min="-1.5" max="1.5" step="0.001" value="0.0">
     <span id="sliderValue">0.000</span>
 
@@ -90,6 +90,10 @@
     const clipValue = document.getElementById('clipValue');
     const modeSelect = document.getElementById('modeSelect');
     const statusEl = document.getElementById('status');
+    const sliderLabel = document.getElementById('sliderLabel');
+
+    // Slider dimension names for each mode
+    const sliderDimNames = ['Im(c)', 'Re(z0)', 'Im(z0)', 'Re(c)'];
 
     let sliderVal = parseFloat(slider.value);
     let clipVal = parseFloat(clipSlider.value);
@@ -118,6 +122,7 @@
 
     modeSelect.addEventListener('change', () => {
       mode = parseInt(modeSelect.value, 10);
+      sliderLabel.textContent = sliderDimNames[mode];
     });
 
     // Mouse drag for rotation (left button) and pan (right button)

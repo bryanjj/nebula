@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>WebGPU Orbit Camera – Baseline Test</title>
+<style>
+    html, body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        font-family: system-ui, sans-serif;
+    }
+    #gfx {
+        width: 100%;
+        height: 100%;
+        display: block;
+        cursor: grab;
+    }
+    #gfx:active {
+        cursor: grabbing;
+    }
+</style>
+</head>
+<body>
+<canvas id="gfx"></canvas>
+
+<script type="module">
+
+// -------------------------------
+// WebGPU Init
+// -------------------------------
+const canvas = document.getElementById("gfx");
+const adapter = await navigator.gpu.requestAdapter();
+const device = await adapter.requestDevice();
+const context = canvas.getContext("webgpu");
+const format = navigator.gpu.getPreferredCanvasFormat();
+
+// Resize and configure
+function resizeCanvas() {
+    const dpr = window.devicePixelRatio;
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.floor(rect.width * dpr);
+    const h = Math.floor(rect.height * dpr);
+
+    if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+        context.configure({
+            device,
+            format,
+            alphaMode: "premultiplied",
+        });
+    }
+}
+
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
+
+// -------------------------------
+// Orbit Camera Uniforms
+// -------------------------------
+let yaw = 0.0;
+let pitch = 0.3;
+let dist = 4.0;
+
+const camData = new Float32Array(4); // yaw, pitch, dist, pad
+const cameraBuffer = device.createBuffer({
+    size: camData.byteLength,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+});
+
+// -------------------------------
+// Scene Uniforms (resolution only for now)
+// -------------------------------
+const sceneData = new Float32Array(4); // width, height, time, pad
+const sceneBuffer = device.createBuffer({
+    size: sceneData.byteLength,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+});
+
+// -------------------------------
+// Mouse Orbit Controls
+// -------------------------------
+let dragging = false;
+let lastX = 0, lastY = 0;
+
+canvas.addEventListener("mousedown", e => {
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+});
+
+canvas.addEventListener("mousemove", e => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+
+    yaw += dx * 0.005;
+    pitch += dy * 0.005;
+    pitch = Math.max(-1.5, Math.min(1.5, pitch));
+});
+
+canvas.addEventListener("mouseup", () => dragging = false);
+canvas.addEventListener("mouseleave", () => dragging = false);
+
+canvas.addEventListener("wheel", e => {
+    dist *= Math.exp(e.deltaY * 0.001);
+    dist = Math.max(1.2, Math.min(12.0, dist));
+});
+
+// -------------------------------
+// WGSL Shader
+// -------------------------------
+const shaderCode = /* wgsl */`
+struct SceneUniforms {
+    data1 : vec4<f32>,   // width, height, time, pad
+};
+
+struct CameraUniforms {
+    yaw   : f32,
+    pitch : f32,
+    dist  : f32,
+    pad   : f32,
+};
+
+@group(0) @binding(0)
+var<uniform> scene : SceneUniforms;
+
+@group(0) @binding(1)
+var<uniform> cam : CameraUniforms;
+
+struct VSOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
+    var pos = array<vec2<f32>,3>(
+        vec2<f32>(-1.0, -3.0),
+        vec2<f32>( 3.0,  1.0),
+        vec2<f32>(-1.0,  1.0)
+    );
+
+    var out : VSOut;
+    out.pos = vec4<f32>(pos[vid], 0.0, 1.0);
+    out.uv  = pos[vid] * 0.5 + vec2<f32>(0.5, 0.5);
+    return out;
+}
+
+
+// Simple sphere SDF to validate camera + raymarch pipeline
+fn sdf_sphere(p: vec3<f32>) -> f32 {
+    return length(p) - 1.0;
+}
+
+
+@fragment
+fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+
+    let w = scene.data1.x;
+    let h = scene.data1.y;
+    let uv = (in.uv * 2.0 - vec2<f32>(1.0,1.0));
+
+    // Camera
+    let yaw   = cam.yaw;
+    let pitch = clamp(cam.pitch, -1.55, 1.55);
+    let dist  = max(cam.dist, 0.1);
+
+    // Spherical orbit camera
+    let camPos = vec3<f32>(
+        dist * cos(pitch) * sin(yaw),
+        dist * sin(pitch),
+        dist * cos(pitch) * cos(yaw)
+    );
+
+    let camTarget = vec3<f32>(0.0,0.0,0.0);
+
+    // Forward vector with stability
+    var forward = camTarget - camPos;
+    let fl = length(forward);
+    if (fl < 1e-5) {
+        forward = vec3<f32>(0.0,0.0,-1.0);
+    } else {
+        forward = forward / fl;
+    }
+
+    // Right/Up vectors
+    var right = cross(vec3<f32>(0.0,1.0,0.0), forward);
+    let rl = length(right);
+    if (rl < 1e-5) {
+        right = vec3<f32>(1.0,0.0,0.0);
+    } else {
+        right = right / rl;
+    }
+
+    let up = cross(forward, right);
+
+    // Ray direction
+    let rd = normalize(uv.x * right + uv.y * up + forward);
+
+    // Raymarch simple SDF sphere
+    var t = 0.0;
+    let maxDist = 10.0;
+    let maxSteps = 80;
+
+    var hit = false;
+    var p = vec3<f32>(0.0);
+
+    for (var i = 0; i < maxSteps; i = i + 1) {
+        p = camPos + t * rd;
+        let d = sdf_sphere(p);
+        if (d < 0.001) {
+            hit = true;
+            break;
+        }
+        t += d;
+        if (t > maxDist) {
+            break;
+        }
+    }
+
+    if (!hit) {
+        let bg = 0.1 + 0.3 * uv.y;
+        return vec4<f32>(vec3<f32>(bg),1.0);
+    }
+
+    // Simple shading
+    let n = normalize(vec3<f32>(
+        sdf_sphere(p + vec3<f32>(0.001,0.0,0.0)) - sdf_sphere(p - vec3<f32>(0.001,0.0,0.0)),
+        sdf_sphere(p + vec3<f32>(0.0,0.001,0.0)) - sdf_sphere(p - vec3<f32>(0.0,0.001,0.0)),
+        sdf_sphere(p + vec3<f32>(0.0,0.0,0.001)) - sdf_sphere(p - vec3<f32>(0.0,0.0,0.001))
+    ));
+
+    let light = normalize(vec3<f32>(1.0,1.0,1.0));
+    let dif = max(dot(n, light), 0.0);
+
+    return vec4<f32>(vec3<f32>(0.8)*dif, 1.0);
+}
+`;
+
+// -------------------------------
+// Pipeline
+// -------------------------------
+const shader = device.createShaderModule({ code: shaderCode });
+
+const pipeline = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module: shader, entryPoint: "vs_main" },
+    fragment: {
+        module: shader,
+        entryPoint: "fs_main",
+        targets: [{ format }],
+    },
+    primitive: { topology: "triangle-list" },
+});
+
+// Bind group
+const bindGroup = device.createBindGroup({
+    layout: pipeline.getBindGroupLayout(0),
+    entries: [
+        { binding: 0, resource: { buffer: sceneBuffer }},
+        { binding: 1, resource: { buffer: cameraBuffer }},
+    ]
+});
+
+// -------------------------------
+// Render Loop
+// -------------------------------
+function frame() {
+    resizeCanvas();
+
+    sceneData[0] = canvas.width;
+    sceneData[1] = canvas.height;
+    sceneData[2] = performance.now() * 0.001;
+    device.queue.writeBuffer(sceneBuffer, 0, sceneData);
+
+    camData[0] = yaw;
+    camData[1] = pitch;
+    camData[2] = dist;
+    device.queue.writeBuffer(cameraBuffer, 0, camData);
+
+    const encoder = device.createCommandEncoder();
+    const view = context.getCurrentTexture().createView();
+    const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+            view,
+            loadOp: "clear",
+            storeOp: "store",
+            clearValue: { r:0, g:0, b:0, a:1 }
+        }]
+    });
+
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.draw(3);
+    pass.end();
+
+    device.queue.submit([encoder.finish()]);
+    requestAnimationFrame(frame);
+}
+
+requestAnimationFrame(frame);
+
+</script>
+</body>
+</html>
