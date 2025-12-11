@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>4D (z0, c) Fractal – WebGPU Raymarcher</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #000;
+      color: #ddd;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      display: flex;
+      flex-direction: column;
+    }
+    #controls {
+      padding: 6px 10px;
+      background: #111;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 13px;
+      border-bottom: 1px solid #222;
+    }
+    #canvas-wrap {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #000;
+    }
+    canvas {
+      border: 1px solid #222;
+      width: 100%;
+      height: 100%;
+      max-height: calc(100vh - 40px);
+      display: block;
+    }
+    input[type="range"] {
+      width: 400px;
+    }
+    select {
+      background: #111;
+      color: #eee;
+      border: 1px solid #333;
+      border-radius: 3px;
+      padding: 2px 4px;
+    }
+    #status {
+      margin-left: auto;
+      font-size: 11px;
+      opacity: 0.8;
+    }
+    .label {
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <span class="label">Slice mode</span>
+    <select id="modeSelect">
+      <option value="0">x: Re(z0), y: Im(z0), z: Re(c), slider: Im(c)</option>
+      <option value="1">x: Re(c), y: Im(c), z: Im(z0), slider: Re(z0)</option>
+      <option value="2">x: Re(z0), y: Re(c), z: Im(c), slider: Im(z0)</option>
+      <option value="3">x: Re(z0), y: Im(z0), z: Im(c), slider: Re(c)</option>
+    </select>
+
+    <span class="label">Slider</span>
+    <input id="slider" type="range" min="-1.5" max="1.5" step="0.001" value="0.0">
+    <span id="sliderValue">0.000</span>
+
+    <span class="label">Clip</span>
+    <input id="clipSlider" type="range" min="-3.0" max="3.0" step="0.01" value="-3.0">
+    <span id="clipValue">-3.00</span>
+
+    <span id="status">Initializing WebGPU…</span>
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="gfx"></canvas>
+  </div>
+
+  <script type="module">
+    const canvas = document.getElementById('gfx');
+    const slider = document.getElementById('slider');
+    const sliderValue = document.getElementById('sliderValue');
+    const clipSlider = document.getElementById('clipSlider');
+    const clipValue = document.getElementById('clipValue');
+    const modeSelect = document.getElementById('modeSelect');
+    const statusEl = document.getElementById('status');
+
+    let sliderVal = parseFloat(slider.value);
+    let clipVal = parseFloat(clipSlider.value);
+    let mode = parseInt(modeSelect.value, 10);
+
+    // Mouse rotation state
+    let rotationX = 0.3;  // Initial pitch (looking slightly down)
+    let rotationY = 0.0;  // Initial yaw
+    let zoom = 1.0;       // Zoom level (affects camera distance)
+    let panX = 0.0;       // Pan offset X (in fractal space)
+    let panY = 0.0;       // Pan offset Y (in fractal space)
+    let isDragging = false;
+    let isPanning = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+
+    slider.addEventListener('input', () => {
+      sliderVal = parseFloat(slider.value);
+      sliderValue.textContent = sliderVal.toFixed(3);
+    });
+
+    clipSlider.addEventListener('input', () => {
+      clipVal = parseFloat(clipSlider.value);
+      clipValue.textContent = clipVal.toFixed(2);
+    });
+
+    modeSelect.addEventListener('change', () => {
+      mode = parseInt(modeSelect.value, 10);
+    });
+
+    // Mouse drag for rotation (left button) and pan (right button)
+    canvas.addEventListener('mousedown', (e) => {
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+      if (e.button === 0) {  // Left button - rotate
+        isDragging = true;
+        canvas.style.cursor = 'grabbing';
+      } else if (e.button === 2) {  // Right button - pan
+        isPanning = true;
+        canvas.style.cursor = 'move';
+      }
+    });
+
+    // Disable context menu on canvas for right-click pan
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 0) {
+        isDragging = false;
+      } else if (e.button === 2) {
+        isPanning = false;
+      }
+      if (!isDragging && !isPanning) {
+        canvas.style.cursor = 'grab';
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging && !isPanning) return;
+      const dx = e.clientX - lastMouseX;
+      const dy = e.clientY - lastMouseY;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+
+      if (isDragging) {
+        // Adjust rotation based on mouse movement
+        rotationY -= dx * 0.005;  // Inverted for natural "grab and drag" feel
+        rotationX += dy * 0.005;
+      } else if (isPanning) {
+        // Pan in screen space, scaled by zoom
+        const panSpeed = 0.003 / zoom;
+        panX -= dx * panSpeed;
+        panY += dy * panSpeed;
+      }
+    });
+
+    // Mouse wheel for zoom
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;  // Scroll down = zoom out, up = zoom in
+      zoom *= zoomFactor;
+      zoom = Math.max(0.1, Math.min(10.0, zoom));  // Clamp zoom range
+    }, { passive: false });
+
+    // Set initial cursor style
+    canvas.style.cursor = 'grab';
+
+    async function init() {
+      if (!('gpu' in navigator)) {
+        statusEl.textContent = 'WebGPU not supported in this browser.';
+        return;
+      }
+
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) {
+        statusEl.textContent = 'Failed to get GPU adapter.';
+        return;
+      }
+      const device = await adapter.requestDevice();
+      const context = canvas.getContext('webgpu');
+      const format = navigator.gpu.getPreferredCanvasFormat();
+
+      function resizeCanvas() {
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.floor(rect.width * dpr);
+        canvas.height = Math.floor(rect.height * dpr);
+
+        console.log("canvas size before configure:", canvas.width, canvas.height);
+
+        context.configure({
+          device,
+          format,
+          alphaMode: 'opaque',
+        });
+      }
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+
+      // Uniforms: 3 vec4<f32> = 12 floats
+      // data1: resolution.x, resolution.y, sliderVal, zoom
+      // data2: mode, rotationX, rotationY, clipDist
+      // data3: panX, panY, (unused), (unused)
+      const uniformBufferSize = 12 * 4;
+      const uniformBuffer = device.createBuffer({
+        size: uniformBufferSize,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      const shaderCode = /* wgsl */`
+struct Uniforms {
+  data1 : vec4<f32>, // res.x, res.y, slider, zoom
+  data2 : vec4<f32>, // mode, rotationX, rotationY, clipDist
+  data3 : vec4<f32>, // panX, panY, (unused), (unused)
+};
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
+struct VSOut {
+  @builtin(position) pos : vec4<f32>,
+  @location(0) uv      : vec2<f32>,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
+  // Fullscreen triangle
+  var positions = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -3.0),
+    vec2<f32>( 3.0,  1.0),
+    vec2<f32>(-1.0,  1.0)
+  );
+  var out : VSOut;
+  let p = positions[vid];
+  out.pos = vec4<f32>(p, 0.0, 1.0);
+  out.uv = 0.5 * (p + vec2<f32>(1.0, 1.0)); // [0,1]
+  return out;
+}
+
+fn getResolution() -> vec2<f32> {
+  return uniforms.data1.xy;
+}
+
+fn getSlider() -> f32 {
+  return uniforms.data1.z;
+}
+
+fn getZoom() -> f32 {
+  return uniforms.data1.w;
+}
+
+fn getRotationX() -> f32 {
+  return uniforms.data2.y;
+}
+
+fn getRotationY() -> f32 {
+  return uniforms.data2.z;
+}
+
+fn getClipDist() -> f32 {
+  return uniforms.data2.w;
+}
+
+fn getMode() -> i32 {
+  return i32(uniforms.data2.x);
+}
+
+fn getPan() -> vec2<f32> {
+  return uniforms.data3.xy;
+}
+
+// Complex helpers
+fn c_mul(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
+  return vec2<f32>(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x);
+}
+
+fn c_len2(z: vec2<f32>) -> f32 {
+  return dot(z,z);
+}
+
+// Define the return type as a named struct
+struct FractalMap {
+    z0 : vec2<f32>,
+    c  : vec2<f32>,
+};
+
+// Map 3D world point p → (z0, c) in C^2
+fn map_to_fractal(p: vec3<f32>, mode: i32, slider: f32) -> FractalMap {
+  var result: FractalMap;
+
+  if (mode == 0) {
+    // Mode 0:
+    //   z0 = x + i·y
+    //   c  = z + i·slider
+    result.z0 = vec2<f32>(p.x, p.y);
+    result.c  = vec2<f32>(p.z, slider);
+  } else if (mode == 1) {
+    // Mode 1:
+    //   z0 = slider + i·z
+    //   c  = x + i·y
+    result.z0 = vec2<f32>(slider, p.z);
+    result.c  = vec2<f32>(p.x, p.y);
+  } else if (mode == 2) {
+    // Mode 2:
+    //   z0 = x + i·slider
+    //   c  = y + i·z
+    result.z0 = vec2<f32>(p.x, slider);
+    result.c  = vec2<f32>(p.y, p.z);
+  } else {
+    // Mode 3 (fallback/default):
+    //   z0 = x + i·y
+    //   c  = slider + i·z
+    result.z0 = vec2<f32>(p.x, p.y);
+    result.c  = vec2<f32>(slider, p.z);
+  }
+
+  return result;
+}
+
+// Distance-estimation-style function for z_{n+1} = z_n^2 + c
+// This is adapted from Mandelbrot DE (w.r.t c), used as a pseudo-distance
+// in the chosen 3D slice. It's not mathematically perfect, but works well
+// visually for raymarching.
+fn fractal_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
+  let mp = map_to_fractal(p, mode, slider);
+  var z  = mp.z0;
+  let c  = mp.c;
+
+  let maxIter : i32 = 80;
+  let bailout : f32 = 8.0;
+  let bailout2 = bailout * bailout;
+
+  // derivative dz/dc
+  var dz = vec2<f32>(0.0, 0.0);
+  var escaped = false;
+  var iEsc : i32 = maxIter;
+
+  for (var i: i32 = 0; i < maxIter; i = i + 1) {
+    let oldz = z;
+    let olddz = dz;
+
+    // z = z^2 + c
+    let zx2 = oldz.x*oldz.x - oldz.y*oldz.y + c.x;
+    let zy2 = 2.0*oldz.x*oldz.y + c.y;
+    z = vec2<f32>(zx2, zy2);
+
+    // dz = 2*z_old*dz_old + 1
+    let dx = 2.0*(oldz.x*olddz.x - oldz.y*olddz.y) + 1.0;
+    let dy = 2.0*(oldz.x*olddz.y + oldz.y*olddz.x);
+    dz = vec2<f32>(dx, dy);
+
+    if (c_len2(z) > bailout2) {
+      escaped = true;
+      iEsc = i;
+      break;
+    }
+  }
+
+  if (!escaped) {
+    // Deep interior -> treat as "solid" but return a small value
+    return 0.0;
+  }
+
+  let r = length(z);
+  let dr = max(length(dz), 1e-6);
+  let de = 0.5 * log(r) * r / dr;
+
+  // Clamp for stability
+  return clamp(de, 0.0, 1.0);
+}
+
+// Get escape time for coloring (returns 0-1 normalized value)
+fn get_escape_time(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
+  let mp = map_to_fractal(p, mode, slider);
+  var z = mp.z0;
+  let c = mp.c;
+
+  let maxIter: i32 = 80;
+  let bailout: f32 = 8.0;
+  let bailout2 = bailout * bailout;
+
+  for (var i: i32 = 0; i < maxIter; i = i + 1) {
+    let zx2 = z.x * z.x - z.y * z.y + c.x;
+    let zy2 = 2.0 * z.x * z.y + c.y;
+    z = vec2<f32>(zx2, zy2);
+
+    let r2 = c_len2(z);
+    if (r2 > bailout2) {
+      // Smooth escape time using fractional iteration count
+      let log_zn = log(r2) * 0.5;
+      let nu = log(log_zn / log(bailout)) / log(2.0);
+      let smooth_i = f32(i) + 1.0 - nu;
+      return smooth_i / f32(maxIter);
+    }
+  }
+
+  // Interior point - return 1.0 (will be colored differently)
+  return 1.0;
+}
+
+// Estimate normal from distance field via central differences
+fn estimate_normal(p: vec3<f32>, mode: i32, slider: f32, zoom: f32) -> vec3<f32> {
+  let eps = 0.003 / zoom;
+  let dx = fractal_distance(p + vec3<f32>(eps, 0.0, 0.0), mode, slider)
+         - fractal_distance(p - vec3<f32>(eps, 0.0, 0.0), mode, slider);
+  let dy = fractal_distance(p + vec3<f32>(0.0, eps, 0.0), mode, slider)
+         - fractal_distance(p - vec3<f32>(0.0, eps, 0.0), mode, slider);
+  let dz = fractal_distance(p + vec3<f32>(0.0, 0.0, eps), mode, slider)
+         - fractal_distance(p - vec3<f32>(0.0, 0.0, eps), mode, slider);
+  return normalize(vec3<f32>(dx, dy, dz));
+}
+
+// Soft shadow via secondary raymarch
+fn soft_shadow(origin: vec3<f32>, lightDir: vec3<f32>, mode: i32, slider: f32) -> f32 {
+  var t = 0.02;
+  let maxT: f32 = 4.0;
+  var res: f32 = 1.0;
+  let k: f32 = 16.0;
+
+  for (var i: i32 = 0; i < 40; i = i + 1) {
+    let p = origin + lightDir * t;
+    let d = fractal_distance(p, mode, slider);
+    if (d < 0.001) {
+      return 0.0;
+    }
+    res = min(res, k * d / t);
+    t = t + clamp(d, 0.01, 0.2);
+    if (t > maxT) {
+      break;
+    }
+  }
+  return clamp(res, 0.0, 1.0);
+}
+
+// Very simple AO-like factor sampling along normal
+fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, mode: i32, slider: f32) -> f32 {
+  var occ: f32 = 0.0;
+  let steps: i32 = 4;
+  let stepSize: f32 = 0.1;
+  for (var i: i32 = 1; i <= steps; i = i + 1) {
+    let t = f32(i) * stepSize;
+    let sampleP = p + n * t;
+    let d = fractal_distance(sampleP, mode, slider);
+    occ = occ + (t - d);
+  }
+  occ = occ / f32(steps);
+  return clamp(1.0 - 1.5 * occ, 0.0, 1.0);
+}
+
+@fragment
+fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+  let res = getResolution();
+  let slider = getSlider();
+  let zoom = getZoom();
+  let rotX = getRotationX();
+  let rotY = getRotationY();
+  let clipDist = getClipDist();
+  let mode = getMode();
+  let pan = getPan();
+
+  // UV -> [-1,1]
+  let uv = (in.uv * 2.0 - vec2<f32>(1.0, 1.0));
+  let aspect = res.x / res.y;
+
+  // Camera position from spherical coordinates (mouse controlled)
+  // rotX = pitch (up/down), rotY = yaw (left/right)
+  // Camera stays at fixed distance; zoom scales the fractal space
+  let camRadius: f32 = 5.0;
+
+  // Build camera basis vectors directly from rotation angles
+  // This avoids the singularity when forward is parallel to worldUp
+  let sinP = sin(rotX);
+  let cosP = cos(rotX);
+  let sinY = sin(rotY);
+  let cosY = cos(rotY);
+
+  // Camera position on sphere
+  let camPos = vec3<f32>(
+    camRadius * cosP * sinY,
+    camRadius * sinP,
+    camRadius * cosP * cosY
+  );
+
+  // Forward vector (pointing toward origin)
+  let forward = normalize(-camPos);
+
+  // Right vector (always horizontal, perpendicular to Y axis rotation)
+  let right = vec3<f32>(cosY, 0.0, -sinY);
+
+  // Up vector (perpendicular to both forward and right)
+  let up = cross(right, forward);
+
+  // Perspective
+  let fov = 45.0 * 3.14159 / 180.0;
+  let tanFov = tan(0.5 * fov);
+
+  var rd = normalize(
+    forward +
+    uv.x * aspect * tanFov * right +
+    uv.y * tanFov * up
+  );
+
+  // Raymarch - scale precision with zoom level
+  let maxDist: f32 = 20.0;
+  let maxSteps: i32 = i32(200.0 + 100.0 * min(zoom, 5.0));  // More steps when zoomed in
+  let hitEps: f32 = 0.001 / zoom;  // Finer hit detection when zoomed
+  let minStep: f32 = 0.001 / zoom;  // Finer minimum step when zoomed
+
+  // Fixed bounding box - large enough to contain the fractal at any zoom/pan
+  // The fractal itself is bounded, we just need the box to encompass the raymarching region
+  let boxSize: f32 = 3.0;
+
+  // Ray-box intersection to find entry point
+  let boxMin = vec3<f32>(-boxSize);
+  let boxMax = vec3<f32>(boxSize);
+  let invRd = 1.0 / rd;
+  let t1 = (boxMin - camPos) * invRd;
+  let t2 = (boxMax - camPos) * invRd;
+  let tMin = min(t1, t2);
+  let tMax = max(t1, t2);
+  let tEnter = max(max(tMin.x, tMin.y), tMin.z);
+  let tExit = min(min(tMax.x, tMax.y), tMax.z);
+
+  // Start ray at box entry (or 0 if already inside)
+  var t: f32 = max(0.0, tEnter - 0.01);
+
+  var hit = false;
+  var hitPos = vec3<f32>(0.0);
+
+  // Check if ray misses box entirely
+  if (tEnter > tExit || tExit < 0.0) {
+    let bg = 0.1 + 0.3 * uv.y;
+    return vec4<f32>(vec3<f32>(bg), 1.0);
+  }
+
+  // Clip plane: perpendicular to forward direction, at distance clipDist from origin
+  // Points closer to the camera than the clip plane are clipped
+  // dot(p, forward) < clipDist means the point is on the camera side of the plane
+  // No zoom scaling - clip plane stays fixed in world space
+  let scaledClipDist = clipDist;
+
+  for (var i: i32 = 0; i < maxSteps; i = i + 1) {
+    let p = camPos + rd * t;
+
+    // Check if point is on camera side of clip plane (clipped away)
+    let clipTest = dot(p, forward);
+    if (clipTest < scaledClipDist) {
+      // Step forward to find where we cross the clip plane
+      t = t + max(0.01, minStep);
+      if (t > tExit || t > maxDist) {
+        break;
+      }
+      continue;
+    }
+
+    // Scale point by zoom and apply pan offset in camera-relative space
+    let pScaled = p / zoom + right * pan.x + up * pan.y;
+    let de = fractal_distance(pScaled, mode, slider) * zoom;  // Scale distance back
+    if (de < hitEps) {
+      hit = true;
+      hitPos = p;
+      break;
+    }
+
+    let stepSize = max(de * 0.7, minStep);
+    t = t + stepSize;
+
+    if (t > tExit || t > maxDist) {
+      break;
+    }
+  }
+
+  if (!hit) {
+    // Simple background gradient
+    let bg = 0.1 + 0.3 * uv.y;
+    return vec4<f32>(vec3<f32>(bg), 1.0);
+  }
+
+  // Shading - use scaled coordinates with pan offset for fractal lookups
+  let hitPosScaled = hitPos / zoom + right * pan.x + up * pan.y;
+  let n = estimate_normal(hitPosScaled, mode, slider, zoom);
+
+  // Light - positioned behind and above camera
+  let viewDir = normalize(camPos - hitPos);
+  let lightDir = normalize(viewDir + up * 0.3);  // Light from camera direction, slightly above
+  let diff = max(dot(n, lightDir), 0.0);
+  let halfDir = normalize(lightDir + viewDir);
+  let spec = pow(max(dot(n, halfDir), 0.0), 40.0);
+
+  // Shadows & AO (use scaled coordinates with pan)
+  let sh = soft_shadow(hitPosScaled + n * 0.01 / zoom, lightDir, mode, slider);
+  let ao = ambient_occlusion(hitPosScaled, n, mode, slider);
+
+  // Get escape time for coloring
+  let escapeTime = get_escape_time(hitPosScaled, mode, slider);
+
+  // Colormap based on escape time (single cycle across surface)
+  let t_color = escapeTime;  // Single color cycle
+  let baseColor = vec3<f32>(
+    0.5 + 0.5 * cos(6.28318 * (t_color + 0.0)),
+    0.5 + 0.5 * cos(6.28318 * (t_color + 0.33)),
+    0.5 + 0.5 * cos(6.28318 * (t_color + 0.67))
+  );
+
+  let ambient = 0.35 * ao;
+  let diffuse = 1.0 * diff * sh;
+  let specular = 0.6 * spec * sh;
+
+  var color = baseColor * (ambient + diffuse) + vec3<f32>(1.0, 0.95, 0.9) * specular;
+  color = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
+  // Subtle gamma
+  color = pow(color, vec3<f32>(0.9));
+
+  return vec4<f32>(color, 1.0);
+}
+      `;
+
+      const module = device.createShaderModule({ code: shaderCode });
+
+      const pipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+          module,
+          entryPoint: 'vs_main',
+        },
+        fragment: {
+          module,
+          entryPoint: 'fs_main',
+          targets: [{ format }],
+        },
+        primitive: {
+          topology: 'triangle-list',
+        },
+      });
+
+      const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [{
+          binding: 0,
+          resource: { buffer: uniformBuffer },
+        }],
+      });
+
+      function frame() {
+        const data = new Float32Array(12);
+        data[0] = canvas.width;
+        data[1] = canvas.height;
+        data[2] = sliderVal;
+        data[3] = zoom;
+        data[4] = mode;
+        data[5] = rotationX;
+        data[6] = rotationY;
+        data[7] = clipVal;
+        data[8] = panX;
+        data[9] = panY;
+        data[10] = 0.0;  // unused
+        data[11] = 0.0;  // unused
+        device.queue.writeBuffer(uniformBuffer, 0, data.buffer, data.byteOffset, data.byteLength);
+
+        const encoder = device.createCommandEncoder();
+        const textureView = context.getCurrentTexture().createView();
+
+        const pass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: textureView,
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear',
+            storeOp: 'store',
+          }],
+        });
+
+        pass.setPipeline(pipeline);
+        pass.setBindGroup(0, bindGroup);
+        pass.draw(3, 1, 0, 0);
+        pass.end();
+
+        device.queue.submit([encoder.finish()]);
+
+        requestAnimationFrame(frame);
+      }
+
+      statusEl.textContent = 'WebGPU OK – raymarching 4D fractal slice';
+      requestAnimationFrame(frame);
+    }
+
+    init();
+  </script>
+</body>
+</html>
