@@ -10,24 +10,26 @@
 <body>
   <header>
     <h1>Nebula <span>4D fractal explorer</span></h1>
-    <p>z<sub>n+1</sub> = z<sub>n</sub>² + c · Three dimensions on screen, one in your hands.</p>
+    <p>z<sub>n+1</sub> = z<sub>n</sub>² + c</p>
   </header>
   <section id="controls" aria-label="Fractal controls">
-    <div class="control mode">
-      <label for="modeSelect">Slice mode</label>
-      <select id="modeSelect">
-        <option value="0">XYZ: Re(z₀), Im(z₀), Re(c) · slice Im(c)</option>
-        <option value="1">XYZ: Re(c), Im(c), Im(z₀) · slice Re(z₀)</option>
-        <option value="2">XYZ: Re(z₀), Re(c), Im(c) · slice Im(z₀)</option>
-        <option value="3">XYZ: Re(z₀), Im(z₀), Im(c) · slice Re(c)</option>
-      </select>
+    <div class="control slice">
+      <div class="control-heading">
+        <label for="modeSelect">Slider dimension</label>
+        <select id="modeSelect">
+          <option value="1">Re(z₀)</option>
+          <option value="2">Im(z₀)</option>
+          <option value="3">Re(c)</option>
+          <option value="0" selected>Im(c)</option>
+        </select>
+      </div>
+      <div class="range"><input id="slider" aria-label="Im(c)" type="range" min="-1.5" max="1.5" step="0.001" value="0"><output id="sliderValue" for="slider">0.000</output></div>
     </div>
     <div class="control">
-      <label for="slider" id="sliderLabel">Im(c)</label>
-      <div class="range"><input id="slider" type="range" min="-1.5" max="1.5" step="0.001" value="0"><output id="sliderValue" for="slider">0.000</output></div>
-    </div>
-    <div class="control">
-      <label for="clipSlider">Clip plane</label>
+      <div class="control-heading">
+        <label for="clipSlider">Clip plane</label>
+        <button id="alignClipButton" type="button" title="Align the cut to the current view, then keep it fixed to the fractal">Align to view</button>
+      </div>
       <div class="range"><input id="clipSlider" type="range" min="-3" max="3" step="0.01" value="-3"><output id="clipValue" for="clipSlider">-3.00</output></div>
     </div>
     <div class="control quality">
@@ -45,6 +47,6 @@
     <p id="status" role="status" aria-live="polite">Initializing WebGPU…</p>
     <button id="retryButton" type="button" hidden>Retry</button>
   </footer>
-  <script type="module" src="explorer.js"></script>
+  <script type="module" src="explorer.js?v=3"></script>
 </body>
 </html>
