@@ -13,7 +13,12 @@ before(async () => {
     try { if ((await fetch(origin)).ok) break; } catch {}
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  browser = await chromium.launch({ args: ['--enable-unsafe-webgpu', '--use-angle=swiftshader'] });
+  const args = ['--enable-unsafe-webgpu'];
+  if (process.platform === 'linux') args.push(
+    '--enable-features=Vulkan', '--use-angle=vulkan', '--use-vulkan=swiftshader',
+    '--use-webgpu-adapter=swiftshader', '--disable-vulkan-surface',
+  );
+  browser = await chromium.launch({ channel: 'chromium', args });
 });
 after(async () => { await browser?.close(); server?.kill(); });
 
@@ -78,6 +83,7 @@ test('legacy entry point preserves URL suffix and opens the canonical explorer',
 
 test('real GPU compiles the shader and responds to controls', async (t) => {
   const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
+  page.on('console', (message) => { if (message.type() === 'error') console.error(message.text()); });
   try {
     await page.goto(origin);
     await page.waitForFunction(() => document.querySelector('#status').dataset.error === 'true' || document.querySelector('#status').textContent.includes('ready'));
