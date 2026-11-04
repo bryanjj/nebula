@@ -85,6 +85,38 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
   const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
   page.on('console', (message) => { if (message.type() === 'error') console.error(message.text()); });
   try {
+    // A listed adapter can still fail in a headless environment. Probe a tiny
+    // independent shader before deciding whether renderer validation can run.
+    await page.route('**/gpu-probe', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>GPU probe</title>' }));
+    await page.goto(origin + '/gpu-probe');
+    const probe = await page.evaluate(async () => {
+      try {
+        const adapter = await navigator.gpu?.requestAdapter();
+        if (!adapter) return 'No usable WebGPU adapter';
+        const device = await adapter.requestDevice();
+        const unavailable = device.lost.then((info) => 'GPU probe lost device: ' + info.message);
+        const work = (async () => {
+          const module = device.createShaderModule({ code: '@compute @workgroup_size(1) fn main() {}' });
+          const pipeline = await device.createComputePipelineAsync({ layout: 'auto', compute: { module, entryPoint: 'main' } });
+          const encoder = device.createCommandEncoder();
+          const pass = encoder.beginComputePass();
+          pass.setPipeline(pipeline);
+          pass.dispatchWorkgroups(1);
+          pass.end();
+          device.queue.submit([encoder.finish()]);
+          await device.queue.onSubmittedWorkDone();
+          return null;
+        })();
+        const result = await Promise.race([work, unavailable]);
+        device.destroy();
+        return result;
+      } catch (error) { return 'GPU probe failed: ' + error.message; }
+    });
+    if (probe) {
+      if (process.env.NEBULA_TEST_GPU === '1') assert.fail(probe);
+      t.skip(probe);
+      return;
+    }
     await page.goto(origin);
     await page.waitForFunction(() => document.querySelector('#status').dataset.error === 'true' || document.querySelector('#status').textContent.includes('ready'));
     const status = await page.locator('#status').innerText();
