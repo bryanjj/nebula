@@ -14,12 +14,15 @@
   </header>
   <section id="controls" aria-label="Fractal controls">
     <div class="control slice">
-      <select id="modeSelect" aria-label="Slice coordinate">
-        <option value="1">Re(z₀)</option>
-        <option value="2">Im(z₀)</option>
-        <option value="3">Re(c)</option>
-        <option value="0" selected>Im(c)</option>
-      </select>
+      <div class="slice-heading">
+        <label for="modeSelect">Slider dimension</label>
+        <select id="modeSelect">
+          <option value="1">Re(z₀)</option>
+          <option value="2">Im(z₀)</option>
+          <option value="3">Re(c)</option>
+          <option value="0" selected>Im(c)</option>
+        </select>
+      </div>
       <div class="range"><input id="slider" aria-label="Im(c)" type="range" min="-1.5" max="1.5" step="0.001" value="0"><output id="sliderValue" for="slider">0.000</output></div>
     </div>
     <div class="control">
