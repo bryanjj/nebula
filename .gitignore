@@ -18,3 +18,9 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated meshes and browser test artifacts
+generated/
+node_modules/
+test-results/
+playwright-report/

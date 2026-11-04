@@ -17,6 +17,7 @@ Press c to zoom out 1.3x.
 Press x to reset to full domain.
 """
 
+from nebula_config import grid_size, request_gpu_device
 import numpy as np
 import wgpu
 import vedo
@@ -27,7 +28,7 @@ import time
 # ----------------------------------------------------
 # PARAMETERS
 # ----------------------------------------------------
-N = 512  # Resolution (512^3 fits in GPU buffer limits)
+N = grid_size()
 MAX_ITER = 256
 BAILOUT_SQ = 16.0
 
@@ -78,8 +79,7 @@ for dim in range(4):
 # ----------------------------------------------------
 # WEBGPU SETUP
 # ----------------------------------------------------
-adapter = wgpu.gpu.request_adapter_sync(power_preference="high-performance")
-device = adapter.request_device_sync()
+device = None  # Request GPU access when the explorer is constructed.
 
 # ----------------------------------------------------
 # MARCHING CUBES LOOKUP TABLES
@@ -405,7 +405,7 @@ const X_DIM: u32 = {spatial_dims[0]}u;  // 0=Re(z0), 1=Im(z0), 2=Re(c), 3=Im(c)
 const Y_DIM: u32 = {spatial_dims[1]}u;
 const Z_DIM: u32 = {spatial_dims[2]}u;
 
-@compute @workgroup_size(8, 8, 8)
+@compute @workgroup_size(4, 4, 4)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {{
     let i = gid.x;
     let j = gid.y;
@@ -508,7 +508,7 @@ fn interp_vertex(iso: f32, p1: vec3<f32>, p2: vec3<f32>, v1: f32, v2: f32) -> ve
     return vec4<f32>(pos, val);
 }}
 
-@compute @workgroup_size(8, 8, 8)
+@compute @workgroup_size(4, 4, 4)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {{
     let i = gid.x;
     let j = gid.y;
@@ -594,6 +594,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {{
         // Atomic increment to get vertex index (4 floats per vertex: x, y, z, escape_time)
         let base_idx = atomicAdd(&counter, 12u);
 
+        // Count overflow for the host, but never write a partial triangle.
+        if (base_idx + 12u > arrayLength(&vertices)) {{ continue; }}
+
         // Store 3 vertices with escape time (12 floats)
         vertices[base_idx + 0u] = v_a.x;
         vertices[base_idx + 1u] = v_a.y;
@@ -616,12 +619,19 @@ class FullGPUFractal:
     """GPU-accelerated fractal volume and marching cubes."""
 
     def __init__(self, spatial_dims, custom_ranges=None):
+        global device
+        if device is None:
+            device = request_gpu_device(wgpu, N**3 * 4)
         self.spatial_dims = spatial_dims
         self.custom_ranges = custom_ranges  # Override RANGES if provided
         self._setup_buffers_and_pipelines(spatial_dims)
 
     def _setup_buffers_and_pipelines(self, spatial_dims):
         """Setup GPU buffers and pipelines for given spatial dimensions."""
+        # Changing slice axes/ranges otherwise leaves large GPU buffers alive.
+        for value in list(vars(self).values()):
+            if isinstance(value, wgpu.GPUBuffer):
+                value.destroy()
         self.spatial_dims = spatial_dims
 
         # Use custom ranges if provided, otherwise use global RANGES
@@ -680,10 +690,11 @@ class FullGPUFractal:
         self.edge_table_buf = device.create_buffer_with_data(data=EDGE_TABLE.tobytes(), usage=wgpu.BufferUsage.STORAGE)
         self.tri_table_buf = device.create_buffer_with_data(data=TRI_TABLE.tobytes(), usage=wgpu.BufferUsage.STORAGE)
 
-        # Max triangles: realistic estimate - surface area scales as N^2, not N^3
-        # For a 512^3 volume, surface is roughly proportional to 6*N^2 cells on boundary
-        # Plus some interior detail. 10M triangles is generous for most fractals.
-        max_tris = 10_000_000
+        # Scale initial memory with resolution and respect the device's binding
+        # limit. Each triangle uses 48 bytes (3 vertices of 4 floats).
+        max_tris = min(10_000_000, 24 * N * N,
+                       device.limits["max-storage-buffer-binding-size"] // 48,
+                       device.limits["max-buffer-size"] // 48)
         # 3 vertices per tri, 4 floats per vertex (x, y, z, escape_time)
         max_floats = max_tris * 3 * 4
         self.verts_buf = device.create_buffer(size=max_floats * 4, usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC)
@@ -758,7 +769,7 @@ class FullGPUFractal:
         compute_pass = encoder.begin_compute_pass()
         compute_pass.set_pipeline(self.vol_pipeline)
         compute_pass.set_bind_group(0, self.vol_bind_group)
-        wg = (N + 7) // 8
+        wg = (N + 3) // 4
         compute_pass.dispatch_workgroups(wg, wg, wg)
         compute_pass.end()
 
@@ -766,7 +777,7 @@ class FullGPUFractal:
         mc_pass = encoder.begin_compute_pass()
         mc_pass.set_pipeline(self.mc_pipeline)
         mc_pass.set_bind_group(0, self.mc_bind_group)
-        mc_wg = (N - 1 + 7) // 8
+        mc_wg = (N - 1 + 3) // 4
         mc_pass.dispatch_workgroups(mc_wg, mc_wg, mc_wg)
         mc_pass.end()
 
@@ -788,8 +799,10 @@ class FullGPUFractal:
 
         # Check for buffer overflow
         if num_floats * 4 > self.max_verts_bytes:
-            print(f"[GPU] WARNING: Triangle count exceeded buffer! Truncating.")
-            num_floats = self.max_verts_bytes // 4
+            raise RuntimeError(
+                "Surface exceeded the GPU triangle buffer. Lower NEBULA_RESOLUTION "
+                "or use fractal_4d_explorer.py for CPU surface extraction."
+            )
 
         # Copy vertices
         encoder2 = device.create_command_encoder()
