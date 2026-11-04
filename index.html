@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Explore three-dimensional slices of the four-dimensional Mandelbrot–Julia fractal with WebGPU.">
   <title>Nebula · 4D Fractal Explorer</title>
-  <link rel="stylesheet" href="explorer.css">
+  <link rel="stylesheet" href="explorer.css?v=2">
 </head>
 <body>
   <header>
@@ -40,6 +40,17 @@
   </section>
   <main id="canvas-wrap">
     <canvas id="gfx" tabindex="0" aria-label="Interactive 4D fractal slice" aria-describedby="help"></canvas>
+    <svg id="axisGuide" viewBox="0 0 160 140" role="img" aria-label="Visible axes: X Re(z₀), Y Im(z₀), Z Re(c)">
+      <g fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path class="axis-x" d="M80 76 L130 101 M122 94 L130 101 L120 100" />
+        <path class="axis-y" d="M80 76 L80 29 M75 37 L80 29 L85 37" />
+        <path class="axis-z" d="M80 76 L30 101 M40 100 L30 101 L38 94" />
+      </g>
+      <circle cx="80" cy="76" r="3" fill="#dce4f2" />
+      <text id="axisXLabel" class="axis-x" x="126" y="121">Re(z₀)</text>
+      <text id="axisYLabel" class="axis-y" x="80" y="18">Im(z₀)</text>
+      <text id="axisZLabel" class="axis-z" x="34" y="121">Re(c)</text>
+    </svg>
     <noscript>Enable JavaScript to explore the fractal.</noscript>
   </main>
   <footer>
@@ -47,6 +58,6 @@
     <p id="status" role="status" aria-live="polite">Initializing WebGPU…</p>
     <button id="retryButton" type="button" hidden>Retry</button>
   </footer>
-  <script type="module" src="explorer.js?v=3"></script>
+  <script type="module" src="explorer.js?v=4"></script>
 </body>
 </html>

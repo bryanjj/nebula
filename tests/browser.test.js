@@ -58,6 +58,17 @@ test('controls fit small screens and reset after mode, slice and clip changes', 
     await withoutGPU(page);
     await page.goto(origin);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    const axisLabels = page.locator('#axisGuide text');
+    const mappings = [
+      ['Re(z₀)', 'Im(z₀)', 'Re(c)'], ['Re(c)', 'Im(c)', 'Im(z₀)'],
+      ['Re(z₀)', 'Re(c)', 'Im(c)'], ['Re(z₀)', 'Im(z₀)', 'Im(c)'],
+    ];
+    for (let mode = 0; mode < mappings.length; mode++) {
+      await page.getByLabel('Slider dimension').selectOption(String(mode));
+      assert.deepEqual(await axisLabels.allTextContents(), mappings[mode]);
+      await page.locator('#gfx').press('ArrowRight');
+      assert.deepEqual(await axisLabels.allTextContents(), mappings[mode]);
+    }
     await page.getByLabel('Slider dimension').selectOption('2');
     assert.equal(await page.locator('#slider').getAttribute('aria-label'), 'Im(z₀)');
     await page.locator('#slider').press('ArrowRight');
@@ -69,6 +80,7 @@ test('controls fit small screens and reset after mode, slice and clip changes', 
     assert.equal(await page.locator('#clipValue').innerText(), '-3.00');
     assert.equal(await page.getByLabel('Slider dimension').inputValue(), '0');
     assert.equal(await page.locator('#slider').getAttribute('aria-label'), 'Im(c)');
+    assert.deepEqual(await axisLabels.allTextContents(), mappings[0]);
   } finally { await page.close(); }
 });
 

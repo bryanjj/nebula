@@ -8,6 +8,20 @@ const statusEl = document.getElementById('status');
 const qualitySelect = document.getElementById('qualitySelect');
 const retryButton = document.getElementById('retryButton');
 const sliderDimNames = ['Im(c)', 'Re(z₀)', 'Im(z₀)', 'Re(c)'];
+// X/Y/Z order matches map_to_fractal in the shader. The guide is a fixed legend.
+const visibleAxes = [
+  ['Re(z₀)', 'Im(z₀)', 'Re(c)'],
+  ['Re(c)', 'Im(c)', 'Im(z₀)'],
+  ['Re(z₀)', 'Re(c)', 'Im(c)'],
+  ['Re(z₀)', 'Im(z₀)', 'Im(c)'],
+];
+function updateAxisGuide() {
+  const names = visibleAxes[mode];
+  for (const [i, axis] of ['X', 'Y', 'Z'].entries()) {
+    document.getElementById(`axis${axis}Label`).textContent = names[i];
+  }
+  document.getElementById('axisGuide').ariaLabel = `Visible axes: X ${names[0]}, Y ${names[1]}, Z ${names[2]}`;
+}
 
 let sliderVal = 0;
 let clipVal = -3;
@@ -76,6 +90,7 @@ clipSlider.addEventListener('input', () => {
 modeSelect.addEventListener('change', () => {
   mode = Number(modeSelect.value);
   slider.ariaLabel = sliderDimNames[mode];
+  updateAxisGuide();
   invalidate();
 });
 document.getElementById('alignClipButton').addEventListener('click', () => {
@@ -106,6 +121,7 @@ function reset() {
   sliderValue.textContent = '0.000';
   clipValue.textContent = '-3.00';
   slider.ariaLabel = sliderDimNames[0];
+  updateAxisGuide();
   invalidate();
 }
 document.getElementById('resetButton').addEventListener('click', reset);

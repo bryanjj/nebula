@@ -17,7 +17,7 @@ async function viewer({ failPipeline = false, reducedMotion = false } = {}) {
     setPointerCapture() {}
     getBoundingClientRect() { return { width: 360, height: 400 }; }
   }
-  const ids = ['gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'qualitySelect', 'retryButton', 'resetButton', 'alignClipButton'];
+  const ids = ['gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'qualitySelect', 'retryButton', 'resetButton', 'alignClipButton', 'axisGuide', 'axisXLabel', 'axisYLabel', 'axisZLabel'];
   const elements = Object.fromEntries(ids.map((id) => [id, new Element()]));
   elements.qualitySelect.value = '1';
   let submitted = 0;
