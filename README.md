@@ -115,6 +115,6 @@ npx playwright install chromium
 npm test
 ```
 
-The browser tests cover initialization failures, narrow-screen layout, controls/reset, the old entry point, and shader rendering when an adapter is available. Set `NEBULA_TEST_GPU=1 npm test` to require a working GPU rather than skip the renderer check when no adapter is available. The test server uses port 8766; keep it free.
+The browser tests cover initialization failures, narrow-screen layout, controls/reset, the old entry point, and shader rendering when canvas presentation is available. An independent triangle-rendering probe checks that capability first; headless systems can expose an adapter that cannot present a canvas. Set `NEBULA_TEST_GPU=1 npm test` to require this capability rather than skip the renderer check. The test server uses port 8766; keep it free.
 
 GitHub Actions runs the CPU and browser suites on pushes and pull requests. The browser viewer remains a static site and does not depend on Node.js in production.
