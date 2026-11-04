@@ -8,7 +8,7 @@ const statusEl = document.getElementById('status');
 const qualitySelect = document.getElementById('qualitySelect');
 const retryButton = document.getElementById('retryButton');
 const sliderDimNames = ['Im(c)', 'Re(z₀)', 'Im(z₀)', 'Re(c)'];
-// X/Y/Z order matches map_to_fractal in the shader. The guide is a fixed legend.
+// X/Y/Z order matches map_to_fractal in the shader. Labels follow the selected slice; orientation follows the camera.
 const visibleAxes = [
   ['Re(z₀)', 'Im(z₀)', 'Re(c)'],
   ['Re(c)', 'Im(c)', 'Im(z₀)'],
@@ -21,6 +21,39 @@ function updateAxisGuide() {
     document.getElementById(`axis${axis}Label`).textContent = names[i];
   }
   document.getElementById('axisGuide').ariaLabel = `Visible axes: X ${names[0]}, Y ${names[1]}, Z ${names[2]}`;
+}
+
+let guidePitch;
+let guideYaw;
+function updateAxisOrientation() {
+  if (guidePitch === rotationX && guideYaw === rotationY) return;
+  guidePitch = rotationX;
+  guideYaw = rotationY;
+  // Same right/up basis as the shader; SVG Y points down on screen.
+  const sinP = Math.sin(rotationX), cosP = Math.cos(rotationX);
+  const sinY = Math.sin(rotationY), cosY = Math.cos(rotationY);
+  const right = [cosY, 0, -sinY];
+  const up = [-sinP * sinY, cosP, -sinP * cosY];
+  const towardCamera = [cosP * sinY, sinP, cosP * cosY];
+  for (const [i, axis] of ['X', 'Y', 'Z'].entries()) {
+    const dx = 36 * right[i], dy = -36 * up[i];
+    const length = Math.hypot(dx, dy);
+    const ux = length > 0.001 ? dx / length : 0;
+    const uy = length > 0.001 ? dy / length : 1;
+    const x = 80 + dx, y = 70 + dy;
+    const path = document.getElementById(`axis${axis}Arrow`);
+    let d = `M80 70 L${x} ${y}`;
+    if (length > 6) {
+      d += ` M${x - 5 * ux + 3 * uy} ${y - 5 * uy - 3 * ux} L${x} ${y} L${x - 5 * ux - 3 * uy} ${y - 5 * uy + 3 * ux}`;
+    }
+    path.setAttribute('d', d);
+    const label = document.getElementById(`axis${axis}Label`);
+    label.setAttribute('x', x + 22 * ux);
+    label.setAttribute('y', y + 22 * uy + 4);
+    const opacity = towardCamera[i] < 0 ? '0.55' : '1';
+    path.setAttribute('opacity', opacity);
+    label.setAttribute('opacity', opacity);
+  }
 }
 
 let sliderVal = 0;
@@ -53,6 +86,7 @@ function animateClip(now) {
 }
 
 function invalidate() {
+  updateAxisOrientation();
   if (!renderFrame || pendingFrame || stopped || document.hidden) return;
   pendingFrame = requestAnimationFrame((now) => {
     pendingFrame = 0;
@@ -719,4 +753,5 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   invalidate();
 }
 
+updateAxisOrientation();
 init().catch(fail);

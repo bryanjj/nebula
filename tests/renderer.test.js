@@ -13,11 +13,13 @@ async function viewer({ failPipeline = false, reducedMotion = false } = {}) {
     hidden = true;
     width = 1;
     height = 1;
+    attributes = {};
+    setAttribute(name, value) { this.attributes[name] = String(value); }
     focus() {}
     setPointerCapture() {}
     getBoundingClientRect() { return { width: 360, height: 400 }; }
   }
-  const ids = ['gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'qualitySelect', 'retryButton', 'resetButton', 'alignClipButton', 'axisGuide', 'axisXLabel', 'axisYLabel', 'axisZLabel'];
+  const ids = ['gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'qualitySelect', 'retryButton', 'resetButton', 'alignClipButton', 'axisGuide', 'axisXLabel', 'axisYLabel', 'axisZLabel', 'axisXArrow', 'axisYArrow', 'axisZArrow'];
   const elements = Object.fromEntries(ids.map((id) => [id, new Element()]));
   elements.qualitySelect.value = '1';
   let submitted = 0;
@@ -195,4 +197,21 @@ test('reduced motion aligns in one frame', async () => {
   app.frame();
   assert.equal(app.uniforms[11], app.uniforms[6]);
   assert.equal(app.pending, 0);
+});
+
+
+test('axis guide projects world axes through the camera basis and ignores zoom', async () => {
+  const app = await viewer();
+  const arrow = (axis) => app.elements[`axis${axis}Arrow`].attributes.d;
+  const initialX = arrow('X');
+  assert.match(initialX, /^M80 70 L116 70 /);
+  for (let i = 0; i < 16; i++) app.key('ArrowRight');
+  const zLabel = app.elements.axisZLabel.attributes;
+  assert.ok(Number(zLabel.x) < 30, 'positive Z points left after a quarter orbit');
+  assert.notEqual(arrow('X'), initialX);
+  const rotated = arrow('Z');
+  app.key('+');
+  assert.equal(arrow('Z'), rotated);
+  app.elements.resetButton.dispatchEvent(new Event('click'));
+  assert.equal(arrow('X'), initialX);
 });

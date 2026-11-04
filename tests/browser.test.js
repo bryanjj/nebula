@@ -66,7 +66,9 @@ test('controls fit small screens and reset after mode, slice and clip changes', 
     for (let mode = 0; mode < mappings.length; mode++) {
       await page.getByLabel('Slider dimension').selectOption(String(mode));
       assert.deepEqual(await axisLabels.allTextContents(), mappings[mode]);
+      const arrowBefore = await page.locator('#axisXArrow').getAttribute('d');
       await page.locator('#gfx').press('ArrowRight');
+      assert.notEqual(await page.locator('#axisXArrow').getAttribute('d'), arrowBefore);
       assert.deepEqual(await axisLabels.allTextContents(), mappings[mode]);
     }
     await page.getByLabel('Slider dimension').selectOption('2');
