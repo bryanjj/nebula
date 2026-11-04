@@ -142,13 +142,13 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
       return;
     }
     await page.goto(origin);
-    await page.waitForFunction(() => document.querySelector('#status').dataset.error === 'true' || document.querySelector('#status').textContent.includes('ready'));
+    await page.waitForFunction(() => document.querySelector('#status').dataset.error === 'true' || document.querySelector('#status').hidden);
     const status = await page.locator('#status').innerText();
     if (/unavailable|No WebGPU adapter/.test(status) && process.env.NEBULA_TEST_GPU !== '1') {
       t.skip(status);
       return;
     }
-    assert.match(status, /WebGPU ready/);
+    assert.equal(await page.locator('#status').isVisible(), false);
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.getByLabel('Slider dimension').selectOption('1');

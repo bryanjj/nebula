@@ -104,6 +104,7 @@ function fail(error) {
   clipAnimation = null;
   cancelAnimationFrame(pendingFrame);
   pendingFrame = 0;
+  statusEl.hidden = false;
   statusEl.dataset.error = 'true';
   statusEl.textContent = error.message || String(error);
   retryButton.hidden = false;
@@ -749,7 +750,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   };
 
   if (stopped) return;
-  statusEl.textContent = 'WebGPU ready · renders on interaction';
+  statusEl.textContent = '';
+  statusEl.hidden = true;
   invalidate();
 }
 
