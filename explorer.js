@@ -5,10 +5,9 @@ const clipSlider = document.getElementById('clipSlider');
 const clipValue = document.getElementById('clipValue');
 const modeSelect = document.getElementById('modeSelect');
 const statusEl = document.getElementById('status');
-const sliderLabel = document.getElementById('sliderLabel');
 const qualitySelect = document.getElementById('qualitySelect');
 const retryButton = document.getElementById('retryButton');
-const sliderDimNames = ['Im(c)', 'Re(z0)', 'Im(z0)', 'Re(c)'];
+const sliderDimNames = ['Im(c)', 'Re(z₀)', 'Im(z₀)', 'Re(c)'];
 
 let sliderVal = 0;
 let clipVal = -3;
@@ -57,7 +56,7 @@ clipSlider.addEventListener('input', () => {
 });
 modeSelect.addEventListener('change', () => {
   mode = Number(modeSelect.value);
-  sliderLabel.textContent = sliderDimNames[mode];
+  slider.ariaLabel = sliderDimNames[mode];
   invalidate();
 });
 qualitySelect.addEventListener('change', () => { resizeCanvas(); invalidate(); });
@@ -75,7 +74,7 @@ function reset() {
   clipSlider.value = '-3';
   sliderValue.textContent = '0.000';
   clipValue.textContent = '-3.00';
-  sliderLabel.textContent = sliderDimNames[0];
+  slider.ariaLabel = sliderDimNames[0];
   invalidate();
 }
 document.getElementById('resetButton').addEventListener('click', reset);

@@ -58,8 +58,8 @@ test('controls fit small screens and reset after mode, slice and clip changes', 
     await withoutGPU(page);
     await page.goto(origin);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    await page.getByLabel('Slice mode').selectOption('2');
-    assert.equal(await page.locator('#sliderLabel').innerText(), 'Im(z0)');
+    await page.getByLabel('Slice coordinate').selectOption('2');
+    assert.equal(await page.locator('#slider').getAttribute('aria-label'), 'Im(z₀)');
     await page.locator('#slider').press('ArrowRight');
     await page.getByLabel('Clip plane', { exact: true }).press('End');
     assert.equal(await page.locator('#sliderValue').innerText(), '0.001');
@@ -67,7 +67,8 @@ test('controls fit small screens and reset after mode, slice and clip changes', 
     await page.getByRole('button', { name: 'Reset view' }).click();
     assert.equal(await page.locator('#sliderValue').innerText(), '0.000');
     assert.equal(await page.locator('#clipValue').innerText(), '-3.00');
-    assert.equal(await page.getByLabel('Slice mode').inputValue(), '0');
+    assert.equal(await page.getByLabel('Slice coordinate').inputValue(), '0');
+    assert.equal(await page.locator('#slider').getAttribute('aria-label'), 'Im(c)');
   } finally { await page.close(); }
 });
 
@@ -136,7 +137,7 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     assert.match(status, /WebGPU ready/);
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    await page.getByLabel('Slice mode').selectOption('1');
+    await page.getByLabel('Slice coordinate').selectOption('1');
     await page.getByLabel('Clip plane', { exact: true }).press('ArrowRight');
     await page.locator('#gfx').focus();
     await page.keyboard.press('+');

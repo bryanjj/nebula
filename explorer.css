@@ -8,7 +8,7 @@ p { margin: 0; }
 header p, footer { font-size: 12px; color: #9caec8; }
 #controls { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 18px; padding: 12px 20px; background: #111722; border-block: 1px solid #243043; }
 .control { flex: 1 1 170px; min-width: 0; }
-.mode { flex-basis: 340px; }
+.slice select { width: auto; margin-bottom: 6px; }
 .quality { flex: 0 1 110px; }
 label { display: block; margin-bottom: 6px; font-size: 12px; }
 select, button { padding: 7px 9px; background: #1b2535; color: #e3ebf8; border: 1px solid #394b65; border-radius: 5px; font: inherit; font-size: 12px; }
@@ -27,7 +27,6 @@ footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; pad
 #status[data-error="true"] { color: #ffb5b5; }
 @media (max-width: 600px) {
   header, #controls, footer { padding-inline: 12px; }
-  .mode { flex-basis: 100%; }
   h1 span { display: block; margin: 3px 0 0; }
   #status { margin-left: 0; }
 }

@@ -1,5 +1,7 @@
 # Nebula
 
+[Open the live explorer on GitHub Pages](https://bryanjj.github.io/nebula/)
+
 Interactive 3D slices of the four-dimensional Mandelbrot–Julia family:
 
 ```text
@@ -22,10 +24,10 @@ Open **http://localhost:8000** in a WebGPU-enabled browser with hardware acceler
 - Drag (or single-finger drag) to orbit.
 - Right-drag or Shift-drag to pan.
 - Scroll up to zoom in; scroll down to zoom out.
-- Use **Slice mode** to change which three coordinates form the volume.
-- The slice slider controls the remaining coordinate. **Clip plane** cuts into the volume; its minimum disables clipping.
+- Choose **Re(z₀)**, **Im(z₀)**, **Re(c)**, or **Im(c)** in the dropdown above the slice slider. The slider controls that coordinate; the other three form the visible volume.
+- **Clip plane** cuts into the volume; its minimum disables clipping.
 - **Resolution** changes the render scale. Rendering is capped at two million pixels and only runs after input, resize, or returning to the tab.
-- **Reset view** restores the camera, slice mode, slice value, and clip plane.
+- **Reset view** restores the camera, slice coordinate, slice value, and clip plane.
 - Focus the canvas for arrow-key orbit, `+` / `−` zoom, and `R` reset.
 
 `four_d_fractal_webgpu.html` forwards to the same explorer. `cam_test.html` and `test_webgpu.html` remain small standalone camera/WebGPU experiments.

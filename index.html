@@ -10,21 +10,17 @@
 <body>
   <header>
     <h1>Nebula <span>4D fractal explorer</span></h1>
-    <p>z<sub>n+1</sub> = z<sub>n</sub>² + c · Three dimensions on screen, one in your hands.</p>
+    <p>z<sub>n+1</sub> = z<sub>n</sub>² + c</p>
   </header>
   <section id="controls" aria-label="Fractal controls">
-    <div class="control mode">
-      <label for="modeSelect">Slice mode</label>
-      <select id="modeSelect">
-        <option value="0">XYZ: Re(z₀), Im(z₀), Re(c) · slice Im(c)</option>
-        <option value="1">XYZ: Re(c), Im(c), Im(z₀) · slice Re(z₀)</option>
-        <option value="2">XYZ: Re(z₀), Re(c), Im(c) · slice Im(z₀)</option>
-        <option value="3">XYZ: Re(z₀), Im(z₀), Im(c) · slice Re(c)</option>
+    <div class="control slice">
+      <select id="modeSelect" aria-label="Slice coordinate">
+        <option value="1">Re(z₀)</option>
+        <option value="2">Im(z₀)</option>
+        <option value="3">Re(c)</option>
+        <option value="0" selected>Im(c)</option>
       </select>
-    </div>
-    <div class="control">
-      <label for="slider" id="sliderLabel">Im(c)</label>
-      <div class="range"><input id="slider" type="range" min="-1.5" max="1.5" step="0.001" value="0"><output id="sliderValue" for="slider">0.000</output></div>
+      <div class="range"><input id="slider" aria-label="Im(c)" type="range" min="-1.5" max="1.5" step="0.001" value="0"><output id="sliderValue" for="slider">0.000</output></div>
     </div>
     <div class="control">
       <label for="clipSlider">Clip plane</label>
