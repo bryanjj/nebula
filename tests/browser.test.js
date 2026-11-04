@@ -86,6 +86,27 @@ test('controls fit small screens and reset after mode, slice and clip changes', 
   } finally { await page.close(); }
 });
 
+test('refresh resets controls before the next slider input', async () => {
+  const page = await browser.newPage();
+  try {
+    await withoutGPU(page);
+    await page.goto(origin);
+    await page.getByLabel('Slider dimension').selectOption('2');
+    await page.locator('#slider').press('End');
+    await page.getByLabel('Clip plane', { exact: true }).press('End');
+    await page.getByLabel('Resolution', { exact: true }).selectOption('2');
+    await page.reload();
+    assert.equal(await page.getByLabel('Slider dimension').inputValue(), '0');
+    assert.equal(await page.locator('#slider').inputValue(), '0');
+    assert.equal(await page.locator('#clipSlider').inputValue(), '-3');
+    assert.equal(await page.getByLabel('Resolution', { exact: true }).inputValue(), '1');
+    assert.equal(await page.locator('#sliderValue').innerText(), '0.000');
+    assert.equal(await page.locator('#clipValue').innerText(), '-3.00');
+    await page.locator('#slider').press('ArrowRight');
+    assert.equal(await page.locator('#sliderValue').innerText(), '0.001');
+  } finally { await page.close(); }
+});
+
 test('legacy entry point preserves URL suffix and opens the canonical explorer', async () => {
   const page = await browser.newPage();
   try {

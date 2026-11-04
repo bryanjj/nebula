@@ -755,5 +755,13 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   invalidate();
 }
 
-updateAxisOrientation();
+// Browsers can restore form values on reload or history navigation without
+// firing input events. Reset both the controls and renderer state together.
+function resetOnLoad() {
+  qualitySelect.value = '1';
+  reset();
+  resizeCanvas();
+}
+window.addEventListener('pageshow', resetOnLoad);
+resetOnLoad();
 init().catch(fail);
