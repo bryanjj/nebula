@@ -1,6 +1,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { probeDistances, referenceDistance } from './shader-probe.js';
 import { chromium } from 'playwright';
 
 let server;
@@ -58,6 +60,19 @@ test('controls fit small screens and reset after mode, slice and clip changes', 
     await withoutGPU(page);
     await page.goto(origin);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    const axisLabels = page.locator('#axisGuide text');
+    const mappings = [
+      ['Re(z₀)', 'Im(z₀)', 'Re(c)'], ['Re(c)', 'Im(c)', 'Im(z₀)'],
+      ['Re(z₀)', 'Re(c)', 'Im(c)'], ['Re(z₀)', 'Im(z₀)', 'Im(c)'],
+    ];
+    for (let mode = 0; mode < mappings.length; mode++) {
+      await page.getByLabel('Slider dimension').selectOption(String(mode));
+      assert.deepEqual(await axisLabels.allTextContents(), mappings[mode]);
+      const arrowBefore = await page.locator('#axisXArrow').getAttribute('d');
+      await page.locator('#gfx').press('ArrowRight');
+      assert.notEqual(await page.locator('#axisXArrow').getAttribute('d'), arrowBefore);
+      assert.deepEqual(await axisLabels.allTextContents(), mappings[mode]);
+    }
     await page.getByLabel('Slider dimension').selectOption('2');
     assert.equal(await page.locator('#slider').getAttribute('aria-label'), 'Im(z₀)');
     await page.locator('#slider').press('ArrowRight');
@@ -69,6 +84,28 @@ test('controls fit small screens and reset after mode, slice and clip changes', 
     assert.equal(await page.locator('#clipValue').innerText(), '-3.00');
     assert.equal(await page.getByLabel('Slider dimension').inputValue(), '0');
     assert.equal(await page.locator('#slider').getAttribute('aria-label'), 'Im(c)');
+    assert.deepEqual(await axisLabels.allTextContents(), mappings[0]);
+  } finally { await page.close(); }
+});
+
+test('refresh resets controls before the next slider input', async () => {
+  const page = await browser.newPage();
+  try {
+    await withoutGPU(page);
+    await page.goto(origin);
+    await page.getByLabel('Slider dimension').selectOption('2');
+    await page.locator('#slider').press('End');
+    await page.getByLabel('Clip plane', { exact: true }).press('End');
+    await page.getByLabel('Resolution', { exact: true }).selectOption('2');
+    await page.reload();
+    assert.equal(await page.getByLabel('Slider dimension').inputValue(), '0');
+    assert.equal(await page.locator('#slider').inputValue(), '0');
+    assert.equal(await page.locator('#clipSlider').inputValue(), '-3');
+    assert.equal(await page.getByLabel('Resolution', { exact: true }).inputValue(), '1');
+    assert.equal(await page.locator('#sliderValue').innerText(), '0.000');
+    assert.equal(await page.locator('#clipValue').innerText(), '-3.00');
+    await page.locator('#slider').press('ArrowRight');
+    assert.equal(await page.locator('#sliderValue').innerText(), '0.001');
   } finally { await page.close(); }
 });
 
@@ -127,14 +164,23 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
       t.skip(probe);
       return;
     }
+    const source = await readFile(new URL('../explorer.js', import.meta.url), 'utf8');
+    const shader = source.split('const shaderCode = /* wgsl */`')[1].split('`;')[0];
+    const samples = await page.evaluate(probeDistances, shader);
+    for (const sample of samples) {
+      for (let mode = 0; mode < 4; mode++) {
+        assert.ok(Math.abs(sample[mode] - referenceDistance(mode)) < 1e-4, `distance derivative for mode ${mode}`);
+        assert.equal(sample[mode + 4], sample[mode], 'minimum clipping leaves the distance field unchanged');
+      }
+    }
     await page.goto(origin);
-    await page.waitForFunction(() => document.querySelector('#status').dataset.error === 'true' || document.querySelector('#status').textContent.includes('ready'));
+    await page.waitForFunction(() => document.querySelector('#status').dataset.error === 'true' || document.querySelector('#status').hidden);
     const status = await page.locator('#status').innerText();
     if (/unavailable|No WebGPU adapter/.test(status) && process.env.NEBULA_TEST_GPU !== '1') {
       t.skip(status);
       return;
     }
-    assert.match(status, /WebGPU ready/);
+    assert.equal(await page.locator('#status').isVisible(), false);
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.getByLabel('Slider dimension').selectOption('1');

@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 // Exercise scheduling and GPU failure recovery without depending on a driver.
-async function viewer({ failPipeline = false, reducedMotion = false } = {}) {
+async function viewer({ failPipeline = false, reducedMotion = false, restoredControls = false } = {}) {
   class Element extends EventTarget {
     value = '0';
     textContent = '';
@@ -13,13 +13,20 @@ async function viewer({ failPipeline = false, reducedMotion = false } = {}) {
     hidden = true;
     width = 1;
     height = 1;
+    attributes = {};
+    setAttribute(name, value) { this.attributes[name] = String(value); }
     focus() {}
     setPointerCapture() {}
     getBoundingClientRect() { return { width: 360, height: 400 }; }
   }
-  const ids = ['gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'qualitySelect', 'retryButton', 'resetButton', 'alignClipButton'];
+  const ids = ['gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'qualitySelect', 'retryButton', 'resetButton', 'alignClipButton', 'axisGuide', 'axisXLabel', 'axisYLabel', 'axisZLabel', 'axisXArrow', 'axisYArrow', 'axisZArrow'];
   const elements = Object.fromEntries(ids.map((id) => [id, new Element()]));
-  elements.qualitySelect.value = '1';
+  elements.qualitySelect.value = restoredControls ? '2' : '1';
+  if (restoredControls) {
+    elements.slider.value = '0.7';
+    elements.clipSlider.value = '1.2';
+    elements.modeSelect.value = '2';
+  }
   let submitted = 0;
   let uniforms;
   let lose;
@@ -62,7 +69,7 @@ async function viewer({ failPipeline = false, reducedMotion = false } = {}) {
   vm.runInContext(await readFile(new URL('../explorer.js', import.meta.url), 'utf8'), context);
   await new Promise((resolve) => setImmediate(resolve));
   return {
-    elements, document, lose,
+    elements, document, window, lose,
     get uniforms() { return uniforms; },
     key(key) { const event = new Event('keydown'); Object.assign(event, { key }); elements.gfx.dispatchEvent(event); },
     get pending() { return frames.size; },
@@ -195,4 +202,44 @@ test('reduced motion aligns in one frame', async () => {
   app.frame();
   assert.equal(app.uniforms[11], app.uniforms[6]);
   assert.equal(app.pending, 0);
+});
+
+
+test('axis guide projects world axes through the camera basis and ignores zoom', async () => {
+  const app = await viewer();
+  const arrow = (axis) => app.elements[`axis${axis}Arrow`].attributes.d;
+  const initialX = arrow('X');
+  assert.match(initialX, /^M80 70 L116 70 /);
+  for (let i = 0; i < 16; i++) app.key('ArrowRight');
+  const zLabel = app.elements.axisZLabel.attributes;
+  assert.ok(Number(zLabel.x) < 30, 'positive Z points left after a quarter orbit');
+  assert.notEqual(arrow('X'), initialX);
+  const rotated = arrow('Z');
+  app.key('+');
+  assert.equal(arrow('Z'), rotated);
+  app.elements.resetButton.dispatchEvent(new Event('click'));
+  assert.equal(arrow('X'), initialX);
+});
+
+
+test('page load discards restored controls and keeps the first slider input in sync', async () => {
+  const app = await viewer({ restoredControls: true });
+  app.frame();
+  assert.equal(app.elements.slider.value, '0');
+  assert.equal(app.elements.clipSlider.value, '-3');
+  assert.equal(app.elements.modeSelect.value, '0');
+  assert.equal(app.elements.qualitySelect.value, '1');
+  assert.equal(app.uniforms[2], 0);
+  assert.equal(app.uniforms[4], 0);
+  assert.equal(app.uniforms[7], -3);
+  app.input('slider', '0.001');
+  app.frame();
+  assert.ok(Math.abs(app.uniforms[2] - 0.001) < 1e-8);
+  app.input('clipSlider', '1');
+  app.key('ArrowRight');
+  app.window.dispatchEvent(new Event('pageshow'));
+  app.frame();
+  assert.equal(app.uniforms[2], 0);
+  assert.equal(app.uniforms[6], 0);
+  assert.equal(app.uniforms[7], -3);
 });

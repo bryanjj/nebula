@@ -8,6 +8,53 @@ const statusEl = document.getElementById('status');
 const qualitySelect = document.getElementById('qualitySelect');
 const retryButton = document.getElementById('retryButton');
 const sliderDimNames = ['Im(c)', 'Re(z₀)', 'Im(z₀)', 'Re(c)'];
+// X/Y/Z order matches map_to_fractal in the shader. Labels follow the selected slice; orientation follows the camera.
+const visibleAxes = [
+  ['Re(z₀)', 'Im(z₀)', 'Re(c)'],
+  ['Re(c)', 'Im(c)', 'Im(z₀)'],
+  ['Re(z₀)', 'Re(c)', 'Im(c)'],
+  ['Re(z₀)', 'Im(z₀)', 'Im(c)'],
+];
+function updateAxisGuide() {
+  const names = visibleAxes[mode];
+  for (const [i, axis] of ['X', 'Y', 'Z'].entries()) {
+    document.getElementById(`axis${axis}Label`).textContent = names[i];
+  }
+  document.getElementById('axisGuide').ariaLabel = `Visible axes: X ${names[0]}, Y ${names[1]}, Z ${names[2]}`;
+}
+
+let guidePitch;
+let guideYaw;
+function updateAxisOrientation() {
+  if (guidePitch === rotationX && guideYaw === rotationY) return;
+  guidePitch = rotationX;
+  guideYaw = rotationY;
+  // Same right/up basis as the shader; SVG Y points down on screen.
+  const sinP = Math.sin(rotationX), cosP = Math.cos(rotationX);
+  const sinY = Math.sin(rotationY), cosY = Math.cos(rotationY);
+  const right = [cosY, 0, -sinY];
+  const up = [-sinP * sinY, cosP, -sinP * cosY];
+  const towardCamera = [cosP * sinY, sinP, cosP * cosY];
+  for (const [i, axis] of ['X', 'Y', 'Z'].entries()) {
+    const dx = 36 * right[i], dy = -36 * up[i];
+    const length = Math.hypot(dx, dy);
+    const ux = length > 0.001 ? dx / length : 0;
+    const uy = length > 0.001 ? dy / length : 1;
+    const x = 80 + dx, y = 70 + dy;
+    const path = document.getElementById(`axis${axis}Arrow`);
+    let d = `M80 70 L${x} ${y}`;
+    if (length > 6) {
+      d += ` M${x - 5 * ux + 3 * uy} ${y - 5 * uy - 3 * ux} L${x} ${y} L${x - 5 * ux - 3 * uy} ${y - 5 * uy + 3 * ux}`;
+    }
+    path.setAttribute('d', d);
+    const label = document.getElementById(`axis${axis}Label`);
+    label.setAttribute('x', x + 22 * ux);
+    label.setAttribute('y', y + 22 * uy + 4);
+    const opacity = towardCamera[i] < 0 ? '0.55' : '1';
+    path.setAttribute('opacity', opacity);
+    label.setAttribute('opacity', opacity);
+  }
+}
 
 let sliderVal = 0;
 let clipVal = -3;
@@ -39,6 +86,7 @@ function animateClip(now) {
 }
 
 function invalidate() {
+  updateAxisOrientation();
   if (!renderFrame || pendingFrame || stopped || document.hidden) return;
   pendingFrame = requestAnimationFrame((now) => {
     pendingFrame = 0;
@@ -56,6 +104,7 @@ function fail(error) {
   clipAnimation = null;
   cancelAnimationFrame(pendingFrame);
   pendingFrame = 0;
+  statusEl.hidden = false;
   statusEl.dataset.error = 'true';
   statusEl.textContent = error.message || String(error);
   retryButton.hidden = false;
@@ -76,6 +125,7 @@ clipSlider.addEventListener('input', () => {
 modeSelect.addEventListener('change', () => {
   mode = Number(modeSelect.value);
   slider.ariaLabel = sliderDimNames[mode];
+  updateAxisGuide();
   invalidate();
 });
 document.getElementById('alignClipButton').addEventListener('click', () => {
@@ -106,6 +156,7 @@ function reset() {
   sliderValue.textContent = '0.000';
   clipValue.textContent = '-3.00';
   slider.ariaLabel = sliderDimNames[0];
+  updateAxisGuide();
   invalidate();
 }
 document.getElementById('resetButton').addEventListener('click', reset);
@@ -312,9 +363,8 @@ fn map_to_fractal(p: vec3<f32>, mode: i32, slider: f32) -> FractalMap {
 }
 
 // Distance-estimation-style function for z_{n+1} = z_n^2 + c
-// This is adapted from Mandelbrot DE (w.r.t c), used as a pseudo-distance
-// in the chosen 3D slice. It's not mathematically perfect, but works well
-// visually for raymarching.
+// Use both orbit derivatives because the visible slice varies initial z as
+// well as c. This remains a pseudo-distance, not an exact signed distance.
 fn fractal_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
   let mp = map_to_fractal(p, mode, slider);
   var z  = mp.z0;
@@ -324,7 +374,8 @@ fn fractal_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
   let bailout : f32 = 8.0;
   let bailout2 = bailout * bailout;
 
-  // derivative dz/dc
+  // Derivatives with respect to both initial z and parameter c.
+  var dz0 = vec2<f32>(1.0, 0.0);
   var dz = vec2<f32>(0.0, 0.0);
   var escaped = false;
   var iEsc : i32 = maxIter;
@@ -332,6 +383,7 @@ fn fractal_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
   for (var i: i32 = 0; i < maxIter; i = i + 1) {
     let oldz = z;
     let olddz = dz;
+    dz0 = 2.0 * c_mul(oldz, dz0);
 
     // z = z^2 + c
     let zx2 = oldz.x*oldz.x - oldz.y*oldz.y + c.x;
@@ -356,7 +408,11 @@ fn fractal_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
   }
 
   let r = length(z);
-  let dr = max(length(dz), 1e-6);
+  // Frobenius norm of the orbit Jacobian for the three visible real axes.
+  // Using only dz/dc can overestimate a step and skip the z0 surface.
+  let zWeight = select(1.0, 2.0, mode == 0 || mode == 3);
+  let cWeight = 3.0 - zWeight;
+  let dr = max(sqrt(zWeight * dot(dz0, dz0) + cWeight * dot(dz, dz)), 1e-6);
   let de = 0.5 * log(r) * r / dr;
 
   // Clamp for stability
@@ -514,37 +570,17 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let hitEps: f32 = 0.001 / zoom;  // Finer hit detection when zoomed
   let minStep: f32 = 0.001 / zoom;  // Finer minimum step when zoomed
 
-  // Transform the fractal bounds along with zoom and pan.
-  let boxSize: f32 = 3.0;
-
-  // Ray-box intersection to find entry point
+  // March from the camera without a fixed world-space cropping box.
+  // The step budget and far distance bound the work, not the visible volume.
   let panOffset = right * pan.x + up * pan.y;
-  let boxMin = (vec3<f32>(-boxSize) - panOffset) * zoom;
-  let boxMax = (vec3<f32>(boxSize) - panOffset) * zoom;
-  let invRd = 1.0 / rd;
-  let t1 = (boxMin - camPos) * invRd;
-  let t2 = (boxMax - camPos) * invRd;
-  let tMin = min(t1, t2);
-  let tMax = max(t1, t2);
-  let tEnter = max(max(tMin.x, tMin.y), tMin.z);
-  let tExit = min(min(tMax.x, tMax.y), tMax.z);
-
-  // Start ray at box entry (or 0 if already inside)
-  var t: f32 = max(0.0, tEnter - 0.01);
-
+  var t: f32 = 0.0;
   var hit = false;
   var hitPos = vec3<f32>(0.0);
-
-  // Check if ray misses box entirely
-  if (tEnter > tExit || tExit < 0.0) {
-    let bg = 0.1 + 0.3 * uv.y;
-    return vec4<f32>(vec3<f32>(bg), 1.0);
-  }
 
   // The plane lives in fractal coordinates, so orbit, zoom and pan preserve
   // the cut. Only Align to view changes its orientation.
   let clipNormal = getClipNormal();
-  var rayEnd = min(tExit, maxDist);
+  var rayEnd = maxDist;
   if (clipDist > -2.999) {
     let originDistance = dot(camPos / zoom + panOffset, clipNormal) - clipDist;
     let direction = dot(rd / zoom, clipNormal);
@@ -699,8 +735,18 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   };
 
   if (stopped) return;
-  statusEl.textContent = 'WebGPU ready · renders on interaction';
+  statusEl.textContent = '';
+  statusEl.hidden = true;
   invalidate();
 }
 
+// Browsers can restore form values on reload or history navigation without
+// firing input events. Reset both the controls and renderer state together.
+function resetOnLoad() {
+  qualitySelect.value = '1';
+  reset();
+  resizeCanvas();
+}
+window.addEventListener('pageshow', resetOnLoad);
+resetOnLoad();
 init().catch(fail);
