@@ -1,6 +1,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { probeDistances, referenceDistance } from './shader-probe.js';
 import { chromium } from 'playwright';
 
 let server;
@@ -161,6 +163,15 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
       if (process.env.NEBULA_TEST_GPU === '1') assert.fail(probe);
       t.skip(probe);
       return;
+    }
+    const source = await readFile(new URL('../explorer.js', import.meta.url), 'utf8');
+    const shader = source.split('const shaderCode = /* wgsl */`')[1].split('`;')[0];
+    const samples = await page.evaluate(probeDistances, shader);
+    for (const sample of samples) {
+      for (let mode = 0; mode < 4; mode++) {
+        assert.ok(Math.abs(sample[mode] - referenceDistance(mode)) < 1e-4, `distance derivative for mode ${mode}`);
+        assert.equal(sample[mode + 4], sample[mode], 'minimum clipping leaves the distance field unchanged');
+      }
     }
     await page.goto(origin);
     await page.waitForFunction(() => document.querySelector('#status').dataset.error === 'true' || document.querySelector('#status').hidden);
