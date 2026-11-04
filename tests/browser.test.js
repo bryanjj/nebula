@@ -87,7 +87,7 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
   try {
     // A listed adapter can still fail in a headless environment. Probe a tiny
     // independent shader before deciding whether renderer validation can run.
-    await page.route('**/gpu-probe', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>GPU probe</title>' }));
+    await page.route('**/gpu-probe', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>GPU probe</title><canvas width="16" height="16"></canvas>' }));
     await page.goto(origin + '/gpu-probe');
     const probe = await page.evaluate(async () => {
       try {
@@ -96,12 +96,21 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
         const device = await adapter.requestDevice();
         const unavailable = device.lost.then((info) => 'GPU probe lost device: ' + info.message);
         const work = (async () => {
-          const module = device.createShaderModule({ code: '@compute @workgroup_size(1) fn main() {}' });
-          const pipeline = await device.createComputePipelineAsync({ layout: 'auto', compute: { module, entryPoint: 'main' } });
+          const context = document.querySelector('canvas').getContext('webgpu');
+          const format = navigator.gpu.getPreferredCanvasFormat();
+          context.configure({ device, format });
+          const module = device.createShaderModule({ code: `
+            @vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+              var positions = array<vec2f, 3>(vec2f(-1, -1), vec2f(3, -1), vec2f(-1, 3));
+              return vec4f(positions[i], 0, 1);
+            }
+            @fragment fn fragment() -> @location(0) vec4f { return vec4f(1, 0, 0, 1); }
+          ` });
+          const pipeline = await device.createRenderPipelineAsync({ layout: 'auto', vertex: { module, entryPoint: 'vertex' }, fragment: { module, entryPoint: 'fragment', targets: [{ format }] } });
           const encoder = device.createCommandEncoder();
-          const pass = encoder.beginComputePass();
+          const pass = encoder.beginRenderPass({ colorAttachments: [{ view: context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }] });
           pass.setPipeline(pipeline);
-          pass.dispatchWorkgroups(1);
+          pass.draw(3);
           pass.end();
           device.queue.submit([encoder.finish()]);
           await device.queue.onSubmittedWorkDone();
