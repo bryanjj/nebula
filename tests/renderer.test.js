@@ -17,16 +17,17 @@ async function viewer({ failPipeline = false } = {}) {
     setPointerCapture() {}
     getBoundingClientRect() { return { width: 360, height: 400 }; }
   }
-  const ids = ['gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'qualitySelect', 'retryButton', 'resetButton'];
+  const ids = ['gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'qualitySelect', 'retryButton', 'resetButton', 'alignClipButton'];
   const elements = Object.fromEntries(ids.map((id) => [id, new Element()]));
   elements.qualitySelect.value = '1';
   let submitted = 0;
+  let uniforms;
   let lose;
   const device = new EventTarget();
   Object.assign(device, {
     limits: { maxTextureDimension2D: 8192 },
     lost: new Promise((resolve) => { lose = resolve; }),
-    queue: { writeBuffer() {}, submit() { submitted++; } },
+    queue: { writeBuffer(buffer, offset, data) { uniforms = Array.from(new Float32Array(data)); }, submit() { submitted++; } },
     createBuffer() { return {}; },
     createShaderModule() { return { getCompilationInfo: async () => ({ messages: [] }) }; },
     async createRenderPipelineAsync() {
@@ -61,6 +62,8 @@ async function viewer({ failPipeline = false } = {}) {
   await new Promise((resolve) => setImmediate(resolve));
   return {
     elements, document, lose,
+    get uniforms() { return uniforms; },
+    key(key) { const event = new Event('keydown'); Object.assign(event, { key }); elements.gfx.dispatchEvent(event); },
     get pending() { return frames.size; },
     get submitted() { return submitted; },
     frame() { const batch = [...frames.values()]; frames.clear(); batch.forEach((callback) => callback()); },
@@ -114,4 +117,29 @@ test('pipeline rejection becomes a visible error with no scheduled work', async 
   assert.equal(app.elements.status.dataset.error, 'true');
   assert.match(app.elements.status.textContent, /Invalid test pipeline/);
   assert.equal(app.elements.retryButton.hidden, false);
+});
+
+
+test('clip orientation stays fixed through orbit and zoom until aligned, and reset restores it', async () => {
+  const app = await viewer();
+  app.input('clipSlider', '0.25');
+  app.frame();
+  const initial = app.uniforms.slice(10, 12);
+  app.key('ArrowRight');
+  app.key('ArrowDown');
+  app.key('+');
+  app.frame();
+  assert.deepEqual(app.uniforms.slice(10, 12), initial);
+  assert.notDeepEqual(app.uniforms.slice(5, 7), initial);
+  app.elements.alignClipButton.dispatchEvent(new Event('click'));
+  app.frame();
+  assert.deepEqual(app.uniforms.slice(10, 12), app.uniforms.slice(5, 7));
+  assert.equal(app.uniforms[7], 0.25);
+  app.key('ArrowRight');
+  app.frame();
+  assert.notDeepEqual(app.uniforms.slice(10, 12), app.uniforms.slice(5, 7));
+  app.elements.resetButton.dispatchEvent(new Event('click'));
+  app.frame();
+  assert.deepEqual(app.uniforms.slice(10, 12), initial);
+  assert.equal(app.uniforms[7], -3);
 });

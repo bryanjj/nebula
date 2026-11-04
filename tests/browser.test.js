@@ -138,8 +138,11 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.getByLabel('Slider dimension').selectOption('1');
-    await page.getByLabel('Clip plane', { exact: true }).press('ArrowRight');
+    await page.getByLabel('Clip plane', { exact: true }).press('Home');
+    for (let i = 0; i < 5; i++) await page.getByLabel('Clip plane', { exact: true }).press('PageUp');
+    await page.getByRole('button', { name: 'Align to view', exact: true }).click();
     await page.locator('#gfx').focus();
+    for (let i = 0; i < 32; i++) await page.keyboard.press('ArrowRight');
     await page.keyboard.press('+');
     await page.keyboard.press('ArrowLeft');
     await page.getByLabel('Resolution', { exact: true }).selectOption('0.5');

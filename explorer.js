@@ -14,6 +14,8 @@ let clipVal = -3;
 let mode = 0;
 let rotationX = 0.3;
 let rotationY = 0;
+let clipRotationX = rotationX;
+let clipRotationY = rotationY;
 let zoom = 1;
 let panX = 0;
 let panY = 0;
@@ -59,11 +61,18 @@ modeSelect.addEventListener('change', () => {
   slider.ariaLabel = sliderDimNames[mode];
   invalidate();
 });
+document.getElementById('alignClipButton').addEventListener('click', () => {
+  clipRotationX = rotationX;
+  clipRotationY = rotationY;
+  invalidate();
+});
 qualitySelect.addEventListener('change', () => { resizeCanvas(); invalidate(); });
 
 function reset() {
   rotationX = 0.3;
   rotationY = 0;
+  clipRotationX = rotationX;
+  clipRotationY = rotationY;
   zoom = 1;
   panX = panY = 0;
   mode = 0;
@@ -165,7 +174,7 @@ async function init() {
   // Uniforms: 3 vec4<f32> = 12 floats
   // data1: resolution.x, resolution.y, sliderVal, zoom
   // data2: mode, rotationX, rotationY, clipDist
-  // data3: panX, panY, (unused), (unused)
+  // data3: panX, panY, clipRotationX, clipRotationY
   const uniformBufferSize = 12 * 4;
   const uniformBuffer = device.createBuffer({
     size: uniformBufferSize,
@@ -176,7 +185,7 @@ async function init() {
 struct Uniforms {
   data1 : vec4<f32>, // res.x, res.y, slider, zoom
   data2 : vec4<f32>, // mode, rotationX, rotationY, clipDist
-  data3 : vec4<f32>, // panX, panY, (unused), (unused)
+  data3 : vec4<f32>, // panX, panY, clipRotationX, clipRotationY
 };
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 
@@ -374,6 +383,19 @@ fn estimate_normal(p: vec3<f32>, mode: i32, slider: f32, zoom: f32) -> vec3<f32>
   return gradient / max(length(gradient), 1e-8);
 }
 
+fn getClipNormal() -> vec3<f32> {
+  let pitch = uniforms.data3.z;
+  let yaw = uniforms.data3.w;
+  return -vec3<f32>(cos(pitch) * sin(yaw), sin(pitch), cos(pitch) * cos(yaw));
+}
+
+// Removed material must not cast shadows or occlude the exposed cut.
+fn clipped_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
+  let d = fractal_distance(p, mode, slider);
+  if (getClipDist() <= -2.999) { return d; }
+  return max(d, getClipDist() - dot(p, getClipNormal()));
+}
+
 // Soft shadow via secondary raymarch
 fn soft_shadow(origin: vec3<f32>, lightDir: vec3<f32>, mode: i32, slider: f32) -> f32 {
   var t = 0.02;
@@ -383,7 +405,7 @@ fn soft_shadow(origin: vec3<f32>, lightDir: vec3<f32>, mode: i32, slider: f32) -
 
   for (var i: i32 = 0; i < 40; i = i + 1) {
     let p = origin + lightDir * t;
-    let d = fractal_distance(p, mode, slider);
+    let d = clipped_distance(p, mode, slider);
     if (d < 0.001) {
       return 0.0;
     }
@@ -404,7 +426,7 @@ fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, mode: i32, slider: f32) -> f32 
   for (var i: i32 = 1; i <= steps; i = i + 1) {
     let t = f32(i) * stepSize;
     let sampleP = p + n * t;
-    let d = fractal_distance(sampleP, mode, slider);
+    let d = clipped_distance(sampleP, mode, slider);
     occ = occ + (t - d);
   }
   occ = occ / f32(steps);
@@ -497,15 +519,29 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     return vec4<f32>(vec3<f32>(bg), 1.0);
   }
 
-  // Intersect the clip plane analytically instead of exhausting march steps
-  // crossing the removed region. At the minimum setting clipping is disabled.
+  // The plane lives in fractal coordinates, so orbit, zoom and pan preserve
+  // the cut. Only Align to view changes its orientation.
+  let clipNormal = getClipNormal();
+  var rayEnd = min(tExit, maxDist);
   if (clipDist > -2.999) {
-    let clipT = (clipDist - dot(camPos, forward)) / dot(rd, forward);
-    t = max(t, clipT);
+    let originDistance = dot(camPos / zoom + panOffset, clipNormal) - clipDist;
+    let direction = dot(rd / zoom, clipNormal);
+    if (abs(direction) < 0.000001) {
+      // Parallel rays either stay inside the retained half-space or miss it.
+      if (originDistance < 0.0) { rayEnd = -1.0; }
+    } else {
+      let clipT = -originDistance / direction;
+      if (direction > 0.0) {
+        t = max(t, clipT);
+      } else {
+        // From the back, rays leave the retained half-space at the plane.
+        rayEnd = min(rayEnd, clipT);
+      }
+    }
   }
 
   for (var i: i32 = 0; i < maxSteps; i = i + 1) {
-    if (t > tExit || t > maxDist) { break; }
+    if (t > rayEnd) { break; }
     let p = camPos + rd * t;
 
     // Scale point by zoom and apply pan offset in camera-relative space
@@ -520,7 +556,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     let stepSize = max(de * 0.7, minStep);
     t = t + stepSize;
 
-    if (t > tExit || t > maxDist) {
+    if (t > rayEnd) {
       break;
     }
   }
@@ -534,6 +570,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // Shading - use scaled coordinates with pan offset for fractal lookups
   let hitPosScaled = hitPos / zoom + right * pan.x + up * pan.y;
   var n = estimate_normal(hitPosScaled, mode, slider, zoom);
+  if (clipDist > -2.999 && abs(dot(hitPosScaled, clipNormal) - clipDist) < 0.00001) {
+    n = -clipNormal;
+  }
   if (dot(n, n) < 0.01) { n = -forward; }
 
   // Light - positioned behind and above camera
@@ -613,8 +652,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     data[7] = clipVal;
     data[8] = panX;
     data[9] = panY;
-    data[10] = 0.0;  // unused
-    data[11] = 0.0;  // unused
+    data[10] = clipRotationX;
+    data[11] = clipRotationY;
     device.queue.writeBuffer(uniformBuffer, 0, data.buffer, data.byteOffset, data.byteLength);
 
     const encoder = device.createCommandEncoder();
