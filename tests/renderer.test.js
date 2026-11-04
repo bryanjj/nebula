@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 // Exercise scheduling and GPU failure recovery without depending on a driver.
-async function viewer({ failPipeline = false } = {}) {
+async function viewer({ failPipeline = false, reducedMotion = false } = {}) {
   class Element extends EventTarget {
     value = '0';
     textContent = '';
@@ -47,13 +47,14 @@ async function viewer({ failPipeline = false } = {}) {
   Object.assign(document, { hidden: false, getElementById: (id) => elements[id] });
   const frames = new Map();
   let frameId = 0;
+  let now = 0;
   const window = new EventTarget();
-  Object.assign(window, { isSecureContext: true, devicePixelRatio: 2 });
+  Object.assign(window, { isSecureContext: true, devicePixelRatio: 2, matchMedia: () => ({ matches: reducedMotion }) });
   const context = vm.createContext({
     document, window, console: { error() {} },
     navigator: { gpu: { requestAdapter: async () => ({ requestDevice: async () => device }), getPreferredCanvasFormat: () => 'bgra8unorm' } },
     GPUBufferUsage: { UNIFORM: 1, COPY_DST: 2 },
-    Float32Array,
+    Float32Array, performance: { now: () => now },
     requestAnimationFrame(callback) { const id = ++frameId; frames.set(id, callback); return id; },
     cancelAnimationFrame(id) { frames.delete(id); },
     ResizeObserver: class { observe() {} },
@@ -66,7 +67,7 @@ async function viewer({ failPipeline = false } = {}) {
     key(key) { const event = new Event('keydown'); Object.assign(event, { key }); elements.gfx.dispatchEvent(event); },
     get pending() { return frames.size; },
     get submitted() { return submitted; },
-    frame() { const batch = [...frames.values()]; frames.clear(); batch.forEach((callback) => callback()); },
+    frame(elapsed = 0) { now += elapsed; const batch = [...frames.values()]; frames.clear(); batch.forEach((callback) => callback(now)); },
     input(id, value) { elements[id].value = value; elements[id].dispatchEvent(new Event('input')); },
   };
 }
@@ -132,7 +133,7 @@ test('clip orientation stays fixed through orbit and zoom until aligned, and res
   assert.deepEqual(app.uniforms.slice(10, 12), initial);
   assert.notDeepEqual(app.uniforms.slice(5, 7), initial);
   app.elements.alignClipButton.dispatchEvent(new Event('click'));
-  app.frame();
+  app.frame(450);
   assert.deepEqual(app.uniforms.slice(10, 12), app.uniforms.slice(5, 7));
   assert.equal(app.uniforms[7], 0.25);
   app.key('ArrowRight');
@@ -142,4 +143,56 @@ test('clip orientation stays fixed through orbit and zoom until aligned, and res
   app.frame();
   assert.deepEqual(app.uniforms.slice(10, 12), initial);
   assert.equal(app.uniforms[7], -3);
+});
+
+
+test('alignment eases between frames, keeps depth, and stops rendering on completion', async () => {
+  const app = await viewer();
+  app.input('clipSlider', '0.4');
+  app.key('ArrowRight');
+  app.key('ArrowRight');
+  app.frame();
+  app.elements.alignClipButton.dispatchEvent(new Event('click'));
+  app.frame();
+  assert.equal(app.uniforms[11], 0);
+  assert.equal(app.pending, 1);
+  app.frame(225);
+  assert.ok(Math.abs(app.uniforms[11] - 0.1) < 1e-6);
+  assert.ok(Math.abs(app.uniforms[7] - 0.4) < 1e-6);
+  app.frame(225);
+  assert.ok(Math.abs(app.uniforms[11] - 0.2) < 1e-6);
+  assert.equal(app.pending, 0);
+});
+
+test('alignment takes the short arc after a full orbit and can be retargeted or reset', async () => {
+  const app = await viewer();
+  for (let i = 0; i < 64; i++) app.key('ArrowRight');
+  app.frame();
+  app.elements.alignClipButton.dispatchEvent(new Event('click'));
+  app.frame(225);
+  assert.ok(app.uniforms[11] > 0 && app.uniforms[11] < 0.1);
+  const midway = app.uniforms[11];
+  app.key('ArrowRight');
+  app.elements.alignClipButton.dispatchEvent(new Event('click'));
+  app.frame();
+  assert.equal(app.uniforms[11], midway);
+  app.frame(450);
+  assert.ok(Math.abs(app.uniforms[11] - (6.5 - 2 * Math.PI)) < 1e-6);
+  assert.equal(app.pending, 0);
+  app.key('ArrowRight');
+  app.elements.alignClipButton.dispatchEvent(new Event('click'));
+  app.frame(100);
+  app.elements.resetButton.dispatchEvent(new Event('click'));
+  app.frame();
+  assert.equal(app.uniforms[11], 0);
+  assert.equal(app.pending, 0);
+});
+
+test('reduced motion aligns in one frame', async () => {
+  const app = await viewer({ reducedMotion: true });
+  app.key('ArrowRight');
+  app.elements.alignClipButton.dispatchEvent(new Event('click'));
+  app.frame();
+  assert.equal(app.uniforms[11], app.uniforms[6]);
+  assert.equal(app.pending, 0);
 });

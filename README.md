@@ -25,7 +25,7 @@ Open **http://localhost:8000** in a WebGPU-enabled browser with hardware acceler
 - Right-drag or Shift-drag to pan.
 - Scroll up to zoom in; scroll down to zoom out.
 - Choose **Re(z₀)**, **Im(z₀)**, **Re(c)**, or **Im(c)** in the dropdown above the slice slider. The slider controls that coordinate; the other three form the visible volume.
-- **Clip plane** cuts into the volume; its minimum disables clipping. The cut stays fixed to the fractal as you orbit, zoom, or pan. **Align to view** turns the plane to face the current camera while keeping the depth value. **Reset view** also restores the plane’s initial orientation.
+- **Clip plane** cuts into the volume; its minimum disables clipping. The cut stays fixed to the fractal as you orbit, zoom, or pan. **Align to view** smoothly rotates the plane to face the current camera while keeping the depth value. **Reset view** also restores the plane’s initial orientation.
 - **Resolution** changes the render scale. Rendering is capped at two million pixels and only runs after input, resize, or returning to the tab.
 - **Reset view** restores the camera, slice coordinate, slice value, and clip plane.
 - Focus the canvas for arrow-key orbit, `+` / `−` zoom, and `R` reset.

@@ -16,6 +16,8 @@ let rotationX = 0.3;
 let rotationY = 0;
 let clipRotationX = rotationX;
 let clipRotationY = rotationY;
+let clipAnimation = null;
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 let zoom = 1;
 let panX = 0;
 let panY = 0;
@@ -25,18 +27,33 @@ let pendingFrame = 0;
 let stopped = false;
 let resizeCanvas = () => {};
 
-// A static scene needs a new frame only after input, resize or visibility changes.
+// Render while aligning the plane, then return to rendering only on interaction.
+function animateClip(now) {
+  if (!clipAnimation) return;
+  const a = clipAnimation;
+  const progress = reducedMotion.matches ? 1 : Math.min(1, (now - a.start) / 450);
+  const eased = progress * progress * (3 - 2 * progress);
+  clipRotationX = a.fromX + (a.toX - a.fromX) * eased;
+  clipRotationY = a.fromY + a.deltaY * eased;
+  if (progress === 1) clipAnimation = null;
+}
+
 function invalidate() {
   if (!renderFrame || pendingFrame || stopped || document.hidden) return;
-  pendingFrame = requestAnimationFrame(() => {
+  pendingFrame = requestAnimationFrame((now) => {
     pendingFrame = 0;
     if (stopped || document.hidden) return;
-    try { renderFrame(); } catch (error) { fail(error); }
+    try {
+      animateClip(now);
+      renderFrame();
+      if (clipAnimation) invalidate();
+    } catch (error) { fail(error); }
   });
 }
 
 function fail(error) {
   stopped = true;
+  clipAnimation = null;
   cancelAnimationFrame(pendingFrame);
   pendingFrame = 0;
   statusEl.dataset.error = 'true';
@@ -62,13 +79,18 @@ modeSelect.addEventListener('change', () => {
   invalidate();
 });
 document.getElementById('alignClipButton').addEventListener('click', () => {
-  clipRotationX = rotationX;
-  clipRotationY = rotationY;
+  // Use the shorter yaw arc, including after orbiting across ±π or many turns.
+  const delta = rotationY - clipRotationY;
+  clipAnimation = {
+    start: performance.now(), fromX: clipRotationX, fromY: clipRotationY,
+    toX: rotationX, deltaY: Math.atan2(Math.sin(delta), Math.cos(delta)),
+  };
   invalidate();
 });
 qualitySelect.addEventListener('change', () => { resizeCanvas(); invalidate(); });
 
 function reset() {
+  clipAnimation = null;
   rotationX = 0.3;
   rotationY = 0;
   clipRotationX = rotationX;
