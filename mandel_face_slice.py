@@ -1,12 +1,13 @@
+from nebula_config import grid_size
 import numpy as np
 from numba import njit, prange
-from skimage.measure import marching_cubes
+from nebula_surface import marching_cubes
 from vedo import Plotter, Mesh
 
 # ----------------------------------------------------
 # PARAMETERS
 # ----------------------------------------------------
-N = 512
+N = grid_size()
 MAX_ITER = 80
 BAILOUT = 4.0
 
@@ -17,7 +18,7 @@ C_IM_RANGE  = (-2.0,  2.0)
 Z0_RE_RANGE = (-2.0,  2.0)   # z=0 face gives Mandelbrot if z0=0
 
 # PARAMETER SLIDERS
-IM_C_INIT = 0.20      # starting imaginary part of c
+IM_C_INIT = 0.20      # starting offset along the Im(c) axis
 Z0_RE_INIT = 0.00      # starting real part of z0
 
 IM_STEP = 0.02
@@ -33,7 +34,7 @@ def compute_volume(xs, ys, zs, im_c, z0_re, max_iter, bailout):
     xs = Re(c)
     ys = Im(c)
     zs = Re(z0) grid axis (not parameter)
-    im_c = parameter Im(c)
+    im_c = offset added to the Im(c) grid axis
     z0_re = parameter Re(z0)
     """
     nx, ny, nz = len(xs), len(ys), len(zs)
@@ -43,7 +44,7 @@ def compute_volume(xs, ys, zs, im_c, z0_re, max_iter, bailout):
     for i in prange(nx):
         c_re = xs[i]
         for j in range(ny):
-            c_im = ys[j]
+            c_im = ys[j] + im_c
             for k in range(nz):
 
                 # z0 real part varies with slider, imaginary = 0

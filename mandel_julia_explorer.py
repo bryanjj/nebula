@@ -1,12 +1,13 @@
+from nebula_config import grid_size
 import numpy as np
 from numba import njit, prange
-from skimage.measure import marching_cubes
+from nebula_surface import marching_cubes
 from vedo import Plotter, Mesh
 
 # ----------------------------------------------------
 # Parameters
 # ----------------------------------------------------
-N = 256
+N = grid_size()
 MAX_ITER = 128
 BAILOUT = 4.0
 

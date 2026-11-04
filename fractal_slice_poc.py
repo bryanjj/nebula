@@ -1,12 +1,15 @@
+import argparse
+from pathlib import Path
+from nebula_config import grid_size
 import numpy as np
 import numba
-from skimage.measure import marching_cubes
+from nebula_surface import marching_cubes
 from stl import mesh
 
 # -------------------------
 # Parameters for the volume
 # -------------------------
-N = 512               # resolution: start with 64^3 for speed
+N = grid_size()
 max_iter = 512        # iterations for the escape test
 bailout = 4.0        # escape radius
 
@@ -49,43 +52,30 @@ def fill_volume(xs, ys, as_, im_c, max_iter, bailout_sq):
     return volume
 
 
-# -------------------------
-# Populate voxel grid
-# -------------------------
-print("Generating voxel grid…")
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Export a 3D fractal slice as an STL mesh.")
+    parser.add_argument("--output", type=Path, default=Path("generated/fractal_slice_surface.stl"))
+    args = parser.parse_args(argv)
 
-xs = np.linspace(*x_range, N)
-ys = np.linspace(*y_range, N)
-as_ = np.linspace(*a_range, N)
-
-volume = fill_volume(xs, ys, as_, IM_C_FIXED, max_iter, bailout * bailout)
-
-print("Voxel grid finished.")
-
-# -------------------------
-# Marching cubes
-# -------------------------
-print("Extracting surface with marching cubes…")
-
-verts, faces, normals, values = marching_cubes(
-    volume,
-    level=0.5,
-    spacing=(xs[1] - xs[0], ys[1] - ys[0], as_[1] - as_[0])
-)
-
-print(f"Generated mesh: {len(verts)} vertices, {len(faces)} faces")
-
-# -------------------------
-# Save STL file
-# -------------------------
-output_file = "fractal_slice_surface.stl"
-print("Saving STL:", output_file)
-
-m = mesh.Mesh(np.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
-m.vectors = verts[faces]
-
-m.save(output_file) # type: ignore
-
-print("Done.")
+    print(f"Generating {N}³ voxel grid…")
+    xs = np.linspace(*x_range, N)
+    ys = np.linspace(*y_range, N)
+    as_ = np.linspace(*a_range, N)
+    volume = fill_volume(xs, ys, as_, IM_C_FIXED, max_iter, bailout * bailout)
+    verts, faces, _, _ = marching_cubes(
+        volume, level=0.5,
+        spacing=(xs[1] - xs[0], ys[1] - ys[0], as_[1] - as_[0]),
+    )
+    if not len(faces):
+        raise RuntimeError("This slice contains no surface to export.")
+    # Marching cubes returns coordinates relative to the volume origin.
+    verts += np.array([xs[0], ys[0], as_[0]])
+    result = mesh.Mesh(np.zeros(len(faces), dtype=mesh.Mesh.dtype))
+    result.vectors = verts[faces]
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    result.save(str(args.output))
+    print(f"Saved {len(faces):,} triangles to {args.output}")
 
 
+if __name__ == "__main__":
+    main()

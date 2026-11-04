@@ -1,14 +1,15 @@
+from nebula_config import grid_size
 import numpy as np
 import taichi as ti
 from vedo import Plotter, Mesh
 
-# Initialize Taichi with Metal backend for M1
-ti.init(arch=ti.metal)
+# Select an available GPU backend, with Taichi CPU fallback.
+ti.init(arch=ti.gpu)
 
 # ----------------------------------------------------
 # PARAMETERS
 # ----------------------------------------------------
-N = 1024
+N = grid_size()
 MAX_ITER = 256
 BAILOUT = 4.0
 BAILOUT_SQ = BAILOUT * BAILOUT
@@ -50,7 +51,7 @@ zs.from_numpy(zs_np)
 def compute_volume_gpu(im_c: ti.f32, z0_re: ti.f32):
     for i, j, k in volume:
         c_re = xs[i]
-        c_im = ys[j]
+        c_im = ys[j] + im_c
 
         zr = z0_re + zs[k]
         zi = 0.0
@@ -71,7 +72,7 @@ def compute_volume_gpu(im_c: ti.f32, z0_re: ti.f32):
 # ----------------------------------------------------
 # MARCHING CUBES (using skimage for now, Taichi MC is experimental)
 # ----------------------------------------------------
-from skimage.measure import marching_cubes
+from nebula_surface import marching_cubes
 
 def extract_surface():
     vol_np = volume.to_numpy()

@@ -1,12 +1,12 @@
+from nebula_config import grid_size, request_gpu_device
 import numpy as np
 import wgpu
-from wgpu.utils.compute import compute_with_buffers
 from vedo import Plotter, Mesh
 
 # ----------------------------------------------------
 # PARAMETERS
 # ----------------------------------------------------
-N = 512
+N = grid_size()
 MAX_ITER = 80
 BAILOUT_SQ = 16.0
 
@@ -27,7 +27,7 @@ zs_np = np.linspace(*Z0_RE_RANGE, N).astype(np.float32)
 # ----------------------------------------------------
 # WEBGPU SETUP
 # ----------------------------------------------------
-device = wgpu.gpu.request_adapter_sync(power_preference="high-performance").request_device_sync()
+device = None  # Importing the module does not require a GPU.
 
 # Volume shader - computes fractal membership
 VOLUME_SHADER = f"""
@@ -39,7 +39,7 @@ VOLUME_SHADER = f"""
 
 const N: u32 = {N}u;
 
-@compute @workgroup_size(8, 8, 8)
+@compute @workgroup_size(4, 4, 4)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {{
     let i = gid.x;
     let j = gid.y;
@@ -50,8 +50,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {{
     }}
 
     let c_re = xs[i];
-    let c_im = ys[j];
     let im_c = params.x;
+    let c_im = ys[j] + im_c;
     let z0_re = params.y;
     let bailout_sq = params.z;
     let max_iter = u32(params.w);
@@ -234,6 +234,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {{
 
 class WebGPUFractal:
     def __init__(self):
+        global device
+        if device is None:
+            device = request_gpu_device(wgpu, N**3 * 4)
         self.device = device
 
         # Create buffers
@@ -292,8 +295,8 @@ class WebGPUFractal:
         compute_pass.set_pipeline(self.volume_pipeline)
         compute_pass.set_bind_group(0, self.volume_bind_group)
 
-        # Dispatch with workgroup size 8x8x8
-        wg = (N + 7) // 8
+        # Dispatch with workgroup size 4x4x4
+        wg = (N + 3) // 4
         compute_pass.dispatch_workgroups(wg, wg, wg)
         compute_pass.end()
 
@@ -315,8 +318,9 @@ class WebGPUFractal:
         staging.map_sync(wgpu.MapMode.READ)
         data = staging.read_mapped()
         staging.unmap()
+        staging.destroy()
 
-        return np.frombuffer(data, dtype=np.uint32).reshape((N, N, N)).astype(np.uint8)
+        return np.frombuffer(data, dtype=np.uint32).reshape((N, N, N)).transpose(2, 1, 0).astype(np.uint8)
 
 
 # Use PyMCubes for fast CPU marching cubes (fallback)
@@ -325,7 +329,7 @@ try:
     USE_MCUBES = True
     print("[INFO] Using PyMCubes for marching cubes")
 except ImportError:
-    from skimage.measure import marching_cubes
+    from nebula_surface import marching_cubes
     USE_MCUBES = False
     print("[INFO] Using skimage marching cubes (install pymcubes for 3x speedup: pip install pymcubes)")
 

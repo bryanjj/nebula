@@ -1,0 +1,6 @@
+# Tested with Python 3.12. The browser viewer needs no Python packages.
+numpy==2.5.4
+numba==0.68.1
+scikit-image==0.26.0
+vedo==2026.6.3
+numpy-stl==4.1.3
