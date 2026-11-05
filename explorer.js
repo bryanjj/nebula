@@ -405,7 +405,8 @@ async function init() {
   const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({ device, format, alphaMode: 'opaque' });
 
-  let previewPixels = 200_000;
+  let previewPixels = 600_000;
+  let minimumPreviewPixels = 1;
   let detailHeight = 1;
   function sizeCanvas(preview = false) {
     const rect = canvas.getBoundingClientRect();
@@ -415,7 +416,10 @@ async function init() {
     const limit = device.limits.maxTextureDimension2D;
     scale = Math.min(scale, limit / Math.max(1, rect.width), limit / Math.max(1, rect.height));
     detailHeight = Math.max(1, Math.floor(rect.height * scale));
-    if (preview) scale = Math.min(scale, Math.sqrt(previewPixels / Math.max(1, rect.width * rect.height)));
+    // Never magnify a tiny preview across the screen. Preserve at least one
+    // render pixel per CSS pixel, subject to the existing GPU/2M pixel cap.
+    minimumPreviewPixels = Math.max(1, rect.width * rect.height * Math.min(1, scale) ** 2);
+    if (preview) scale = Math.min(scale, Math.sqrt(Math.max(minimumPreviewPixels, previewPixels) / Math.max(1, rect.width * rect.height)));
     const width = Math.max(1, Math.floor(rect.width * scale));
     const height = Math.max(1, Math.floor(rect.height * scale));
     if (canvas.width !== width) canvas.width = width;
@@ -564,7 +568,9 @@ fn fractal_distance_at(p: vec3<f32>, mode: i32, slider: f32, maxIter: i32) -> f3
   var dz0 = vec2<f32>(1.0, 0.0);
   var dz = vec2<f32>(0.0, 0.0);
   var escaped = false;
-  var iEsc : i32 = maxIter;
+  var checkpoint = z;
+  var checkpointAge = 0;
+  var checkpointPeriod = 1;
 
   for (var i: i32 = 0; i < maxIter; i = i + 1) {
     let oldz = z;
@@ -583,8 +589,18 @@ fn fractal_distance_at(p: vec3<f32>, mode: i32, slider: f32, maxIter: i32) -> f3
 
     if (c_len2(z) > bailout2) {
       escaped = true;
-      iEsc = i;
       break;
+    }
+    if (maxIter > 80) {
+      // An exactly repeating f32 orbit cannot subsequently escape. Brent's
+      // checkpoint schedule catches stable interiors without a large history.
+      if (all(z == checkpoint)) { return 0.0; }
+      checkpointAge += 1;
+      if (checkpointAge == checkpointPeriod) {
+        checkpoint = z;
+        checkpointAge = 0;
+        checkpointPeriod *= 2;
+      }
     }
   }
 
@@ -613,20 +629,30 @@ fn fractal_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
 // Approximate a third of a pixel at this ray distance (45-degree vertical FOV).
 // Keep the resting-image footprint during previews so geometry does not pop
 // as the pixel count changes. The floor bounds useful f32 precision.
-fn fly_epsilon(rayDistance: f32) -> f32 {
+fn fly_epsilon(rayDistance: f32, point: vec3<f32>) -> f32 {
   let pixelWidth = 0.82842712 * max(rayDistance, 0.0) / max(max(getResolution().y, uniforms.data5.y), 1.0);
-  return clamp(pixelWidth * 0.35, 0.0000002, 0.001);
+  // f32 spacing depends on coordinate magnitude. A fixed 2e-7 floor was
+  // several screen pixels wide in tiny cavities near the Mandelbrot cusp.
+  let magnitude = max(max(abs(point.x), abs(point.y)), abs(point.z));
+  let coordinateFloor = max(0.000000001, magnitude * 0.00000011920929);
+  return min(0.001, max(pixelWidth * 0.35, coordinateFloor));
 }
 
 fn fly_iterations(epsilon: f32) -> i32 {
-  return i32(clamp(80.0 + 40.0 * log2(0.001 / epsilon), 80.0, 512.0));
+  let base = clamp(80.0 + 40.0 * log2(0.001 / epsilon), 80.0, 512.0);
+  // Spend the additional budget only below the old close-up accuracy floor.
+  let extra = 192.0 * max(0.0, log2(0.0000002 / epsilon));
+  return i32(min(1024.0, base + extra));
 }
 
-// Get escape time for coloring (returns 0-1 normalized value)
+// Escape coloring preserves the original first cycle and extends late escapes.
 fn get_escape_time(p: vec3<f32>, mode: i32, slider: f32, maxIter: i32) -> f32 {
   let mp = map_to_fractal(p, mode, slider);
   var z = mp.z0;
   let c = mp.c;
+  var checkpoint = z;
+  var checkpointAge = 0;
+  var checkpointPeriod = 1;
 
   let bailout: f32 = 8.0;
   let bailout2 = bailout * bailout;
@@ -642,7 +668,21 @@ fn get_escape_time(p: vec3<f32>, mode: i32, slider: f32, maxIter: i32) -> f32 {
       let log_zn = log(r2) * 0.5;
       let nu = log(log_zn / log(bailout)) / log(2.0);
       let smooth_i = f32(i) + 1.0 - nu;
-      return min(smooth_i / 80.0, 1.0);
+      let originalColor = smooth_i / 80.0;
+      // Previously all escapes after 80 were clamped to the solid pink color.
+      if (maxIter > 80 && originalColor > 1.0) {
+        return 1.0 + 0.25 * log2(originalColor);
+      }
+      return originalColor;
+    }
+    if (maxIter > 80) {
+      if (all(z == checkpoint)) { return 1.0; }
+      checkpointAge += 1;
+      if (checkpointAge == checkpointPeriod) {
+        checkpoint = z;
+        checkpointAge = 0;
+        checkpointPeriod *= 2;
+      }
     }
   }
 
@@ -831,16 +871,11 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
     // Scale point by zoom and apply pan offset in camera-relative space
     let pScaled = p / zoom + right * pan.x + up * pan.y;
-    let hitEps = select(0.001 / detail, fly_epsilon(t), flying);
-    var de = fractal_distance(pScaled, mode, slider) * zoom;
-    // Late-escaping points look solid at 80 iterations. Confirm possible
-    // Fly hits at the visible scale before deciding they are a wall.
-    if (flying && de < hitEps) {
-      hitIterations = fly_iterations(hitEps);
-      if (hitIterations > 80) {
-        de = fractal_distance_at(pScaled, mode, slider, hitIterations);
-      }
-    }
+    let hitEps = select(0.001 / detail, fly_epsilon(t, pScaled), flying);
+    hitIterations = select(80, fly_iterations(hitEps), flying);
+    // Early-escaping points still stop immediately. Continuing one orbit to
+    // the required budget avoids repeating its first 80 steps at every hit.
+    let de = fractal_distance_at(pScaled, mode, slider, hitIterations) * zoom;
     if (de < hitEps) {
       hit = true;
       hitPos = p;
@@ -993,7 +1028,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         // Adapt only the moving preview. Bound each adjustment and retain the
         // same fractal/ray budgets so movement doesn't switch field definitions.
         const elapsed = Math.max(1, performance.now() - started);
-        previewPixels = Math.max(40_000, Math.min(300_000,
+        previewPixels = Math.max(minimumPreviewPixels, Math.min(Math.max(600_000, minimumPreviewPixels),
           previewPixels * Math.max(0.5, Math.min(1.25, 50 / elapsed))));
       }
     });

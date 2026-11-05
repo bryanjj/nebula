@@ -552,12 +552,12 @@ test('slow GPU coalesces repeated movement into the newest pose without a frame 
   await app.frame();
   assert.equal(app.submitted, 2);
   assert.ok(Math.abs(app.uniforms[6] + 2) < 1e-6, 'the next frame has the latest orientation');
-  assert.ok(app.uniforms[0] * app.uniforms[1] <= 200_000, 'moving Fly frame is lightweight');
+  assert.ok(app.uniforms[0] * app.uniforms[1] <= 600_000, 'moving Fly frame is lightweight');
   const detailHeight = app.uniforms[17];
   await app.finishGPU(200);
   app.key('w');
   await app.frame();
-  assert.ok(app.uniforms[0] * app.uniforms[1] <= 100_000, 'slow previews reduce their pixel budget');
+  assert.ok(app.uniforms[0] * app.uniforms[1] <= 300_000, 'slow previews reduce their pixel budget');
   await app.finishGPU(50);
   app.timers(240);
   await app.frame();
@@ -574,7 +574,7 @@ test('fresh input cancels idle refinement and hidden tabs submit no GPU work', a
   app.timers(240); // A high-detail frame is requested, but has not started.
   app.key('w');
   await app.frame();
-  assert.ok(app.uniforms[0] * app.uniforms[1] <= 300_000);
+  assert.ok(app.uniforms[0] * app.uniforms[1] <= 600_000);
   app.document.hidden = true;
   app.document.dispatchEvent(new Event('visibilitychange'));
   const submitted = app.submitted;
@@ -609,5 +609,17 @@ test('W preserves a fixed landmark at the reticle across orientations and bubble
       assert.ok(Math.abs(dot(toLandmark,right))<2e-6, 'no horizontal drift of fixed geometry');
       assert.ok(Math.abs(dot(toLandmark,up))<2e-6, 'no vertical drift of fixed geometry');
     }
+  }
+});
+
+
+test('slow Fly previews never fall below screen resolution', async () => {
+  const app = await viewer({ holdGPU: true, width: 1200, height: 800 });
+  app.elements.flyButton.dispatchEvent(new Event('click'));
+  for (let i = 0; i < 8; i++) {
+    app.key('w'); await app.frame();
+    assert.ok(app.uniforms[0] >= 1200 && app.uniforms[1] >= 800);
+    assert.ok(app.uniforms[0] * app.uniforms[1] <= 2_000_000);
+    await app.finishGPU(1000);
   }
 });

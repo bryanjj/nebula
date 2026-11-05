@@ -140,13 +140,13 @@ export async function probeAdaptiveDetail(shader) {
   const adapter = await navigator.gpu.requestAdapter();
   const device = await adapter.requestDevice();
   const uniform = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  const output = device.createBuffer({ size: 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-  const readback = device.createBuffer({ size: 32, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  const output = device.createBuffer({ size: 48, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+  const readback = device.createBuffer({ size: 48, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   try {
     const module = device.createShaderModule({ code: shader + `
       @group(0) @binding(1) var<storage, read_write> results: array<f32>;
       @compute @workgroup_size(1) fn probe() {
-        let epsilon = fly_epsilon(uniforms.data5.z);
+        let epsilon = fly_epsilon(uniforms.data5.z, vec3f(0.25, 0, 0));
         let budget = fly_iterations(epsilon);
         results[0] = epsilon;
         results[1] = f32(budget);
@@ -157,7 +157,11 @@ export async function probeAdaptiveDetail(shader) {
         results[4] = fractal_distance_at(vec3f(0, 0, 0), 1, 0.0, budget);
         results[5] = fractal_distance_at(vec3f(1.7, 0.2, -0.6), 1, 0.35, budget);
         results[6] = fractal_distance(vec3f(1.7, 0.2, -0.6), 1, 0.35);
-        results[7] = f32(fly_iterations(fly_epsilon(0.0)));
+        results[7] = f32(fly_iterations(fly_epsilon(0.0, vec3f(0.25, 0, 0))));
+        results[8] = fly_epsilon(0.0001, vec3f(0.25, 0, 0));
+        results[9] = fractal_distance_at(vec3f(0.250025, 0, 0), 1, 0.0, 512);
+        results[10] = fractal_distance_at(vec3f(0.250025, 0, 0), 1, 0.0, 1024);
+        results[11] = get_escape_time(vec3f(0.2504, 0, 0), 1, 0.0, 1024);
       }
     ` });
     const pipeline = await device.createComputePipelineAsync({ layout: 'auto', compute: { module, entryPoint: 'probe' } });
@@ -183,7 +187,7 @@ export async function probeAdaptiveDetail(shader) {
       pass.setBindGroup(0, bindGroup);
       pass.dispatchWorkgroups(1);
       pass.end();
-      encoder.copyBufferToBuffer(output, 0, readback, 0, 32);
+      encoder.copyBufferToBuffer(output, 0, readback, 0, 48);
       device.queue.submit([encoder.finish()]);
       await readback.mapAsync(GPUMapMode.READ);
       samples.push(Array.from(new Float32Array(readback.getMappedRange())));

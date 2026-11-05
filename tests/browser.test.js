@@ -241,7 +241,11 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
       assert.ok(row.every(Number.isFinite));
       assert.equal(row[4], 0, 'true solid remains solid');
       assert.equal(row[5], row[6], 'early escape stays unchanged');
-      assert.ok(row[7] <= 512, 'iteration work is bounded even at zero distance');
+      assert.ok(row[7] <= 1024, 'iteration work is bounded even at zero distance');
+      assert.ok(row[8] < 0.00000004, 'tiny close-ups are not limited by the old 2e-7 floor');
+      assert.equal(row[9], 0, 'the previous 512-iteration limit fills this late escape');
+      assert.ok(row[10] > row[8], 'the deeper budget can resolve it at this scale');
+      assert.ok(row[11] > 1, 'late escapes retain color variation instead of becoming solid pink');
     }
     const cutSamples = await page.evaluate(probeCutaway, shader);
     const expectedCuts = [
