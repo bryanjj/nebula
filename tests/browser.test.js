@@ -88,6 +88,29 @@ test('controls fit small screens and retain slice settings when resetting orient
   } finally { await page.close(); }
 });
 
+test('slider thumbs snap around zero without trapping arrow-key adjustments', async () => {
+  const page = await browser.newPage();
+  try {
+    await withoutGPU(page);
+    await page.goto(origin);
+    for (const [id, output, step, zero] of [
+      ['slider', 'sliderValue', '0.001', '0.000'],
+      ['clipSlider', 'clipValue', '0.01', '0.00'],
+    ]) {
+      const control = page.locator(`#${id}`);
+      const box = await control.boundingBox();
+      for (const fraction of [0.49, 0.51]) {
+        await control.press('End');
+        await page.mouse.click(box.x + box.width * fraction, box.y + box.height / 2);
+        assert.equal(await control.inputValue(), '0');
+        assert.equal(await page.locator(`#${output}`).innerText(), zero);
+        await control.press('ArrowRight');
+        assert.equal(await control.inputValue(), step);
+      }
+    }
+  } finally { await page.close(); }
+});
+
 test('refresh resets controls before the next slider input', async () => {
   const page = await browser.newPage();
   try {

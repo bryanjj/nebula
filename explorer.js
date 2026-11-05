@@ -112,13 +112,37 @@ function fail(error) {
 }
 retryButton.addEventListener('click', () => location.reload());
 
+// Snap pointer drags within 2% of the range to zero. Keyboard input stays
+// precise so a single arrow press can always move away from zero.
+let activeSlider = null;
+for (const control of [slider, clipSlider]) {
+  control.addEventListener('pointerdown', () => { activeSlider = control; });
+  for (const event of ['keydown', 'blur', 'lostpointercapture']) {
+    control.addEventListener(event, () => {
+      if (activeSlider === control) activeSlider = null;
+    });
+  }
+}
+for (const event of ['pointerup', 'pointercancel', 'blur']) {
+  window.addEventListener(event, () => { activeSlider = null; });
+}
+function readSliderValue(control) {
+  let value = Number(control.value);
+  const snapDistance = (Number(control.max) - Number(control.min)) * 0.02;
+  if (activeSlider === control && Math.abs(value) <= snapDistance) {
+    value = 0;
+    control.value = '0';
+  }
+  return value;
+}
+
 slider.addEventListener('input', () => {
-  sliderVal = Number(slider.value);
+  sliderVal = readSliderValue(slider);
   sliderValue.textContent = sliderVal.toFixed(3);
   invalidate();
 });
 clipSlider.addEventListener('input', () => {
-  clipVal = Number(clipSlider.value);
+  clipVal = readSliderValue(clipSlider);
   clipValue.textContent = clipVal.toFixed(2);
   invalidate();
 });
