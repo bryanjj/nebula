@@ -43,7 +43,7 @@
       <button id="cutawayButton" type="button" aria-pressed="false" title="Carve a bubble around the camera and fly through solid material">Cutaway</button>
       <div class="control">
         <label for="bubbleSlider">Bubble size</label>
-        <div class="range"><input id="bubbleSlider" type="range" min="0" max="330" step="1" value="0" aria-valuetext="0.001" disabled><output id="bubbleValue" for="bubbleSlider">0.001</output></div>
+        <div class="range"><input id="bubbleSlider" type="range" min="-100" max="330" step="1" value="0" aria-valuetext="0.001" disabled><output id="bubbleValue" for="bubbleSlider">0.001</output></div>
       </div>
     </div>
   </section>
@@ -68,6 +68,6 @@
     <p id="status" role="status" aria-live="polite">Initializing WebGPU…</p>
     <button id="retryButton" type="button" hidden>Retry</button>
   </footer>
-  <script type="module" src="explorer.js?v=24"></script>
+  <script type="module" src="explorer.js?v=25"></script>
 </body>
 </html>

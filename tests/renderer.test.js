@@ -507,7 +507,7 @@ test('logarithmic bubble sizes retain tiny values with matching movement speed',
   const app = await viewer();
   app.elements.flyButton.dispatchEvent(new Event('click'));
   app.elements.cutawayButton.dispatchEvent(new Event('click'));
-  for (const [position, radius] of [[0, 0.001], [1, 0.00102], [100, 0.01], [200, 0.1], [300, 1], [330, 2]]) {
+  for (const [position, radius] of [[-100, 0.0001], [-99, 0.000102], [0, 0.001], [1, 0.00102], [100, 0.01], [200, 0.1], [300, 1], [330, 2]]) {
     app.input('bubbleSlider', String(position));
     await app.frame();
     assert.ok(Math.abs(app.uniforms[16] - radius) < 1e-7);
@@ -529,6 +529,13 @@ test('logarithmic bubble sizes retain tiny values with matching movement speed',
   app.key('w');
   await app.frame();
   assert.ok(Math.abs((before[2] - app.uniforms[14]) - 0.00012) < 1e-7, 'movement scales to the tiny radius');
+  const smallerStart = app.uniforms.slice(12, 15);
+  app.input('bubbleSlider', '-100');
+  await app.frame();
+  assert.deepEqual(app.uniforms.slice(12, 15), smallerStart);
+  app.key('w');
+  await app.frame();
+  assert.ok(Math.abs((smallerStart[2] - app.uniforms[14]) - 0.000012) < 1e-7, 'the new minimum also reduces movement tenfold');
 });
 
 

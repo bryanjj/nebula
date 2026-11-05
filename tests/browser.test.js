@@ -127,10 +127,10 @@ test('Fly controls fit on mobile and return to Orbit on refresh', async () => {
     assert.ok(Math.abs(reticleBox.x + reticleBox.width / 2 - canvasBox.x - canvasBox.width / 2) < 0.5);
     assert.ok(Math.abs(reticleBox.y + reticleBox.height / 2 - canvasBox.y - canvasBox.height / 2) < 0.5);
     await page.locator('#bubbleSlider').press('Home');
-    assert.equal(await page.locator('#bubbleValue').innerText(), '0.001');
+    assert.equal(await page.locator('#bubbleValue').innerText(), '0.0001');
     await page.locator('#bubbleSlider').press('ArrowRight');
-    assert.equal(await page.locator('#bubbleValue').innerText(), '0.00102');
-    assert.equal(await page.locator('#bubbleSlider').getAttribute('aria-valuetext'), '0.00102');
+    assert.equal(await page.locator('#bubbleValue').innerText(), '0.000102');
+    assert.equal(await page.locator('#bubbleSlider').getAttribute('aria-valuetext'), '0.000102');
     await page.locator('#bubbleSlider').press('End');
     assert.equal(await page.locator('#bubbleValue').innerText(), '2');
     await page.locator('#gfx').focus();
@@ -247,7 +247,7 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     const expectedCuts = [
       [0.5, 0.25, 0, 0, 0.25, 0.5, 1], [0.25, 0, 0, 0, 0, 0.25, 1],
       [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0],
-      [0.5, 0.25, 0, 0, 0.35, 0.5, 1], [0.001, 0, 0, 0, 0, 0.001, 1],
+      [0.5, 0.25, 0, 0, 0.35, 0.5, 1], [0.001, 0, 0, 0, 0, 0.001, 1], [0.0001, 0, 0, 0, 0, 0.0001, 1],
     ];
     cutSamples.forEach((sample, i) => sample.forEach((value, j) => {
       assert.ok(Math.abs(value - expectedCuts[i][j]) < 1e-5, `bubble field case ${i}, sample ${j}`);

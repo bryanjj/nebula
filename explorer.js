@@ -282,7 +282,7 @@ cutawayButton.addEventListener('click', () => {
   invalidate();
 });
 function updateBubbleSize() {
-  // Equal slider travel changes radius by equal ratios, from 0.001 to 2.
+  // Equal slider travel changes radius by equal ratios, from 0.0001 to 2.
   bubbleRadius = Number((10 ** (Number(bubbleSlider.value) / 100 - 3)).toPrecision(3));
   const label = String(bubbleRadius);
   bubbleValue.textContent = label;
