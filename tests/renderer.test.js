@@ -128,9 +128,23 @@ test('pipeline rejection becomes a visible error with no scheduled work', async 
 });
 
 
-test('clip orientation stays fixed through orbit and zoom until aligned, and reset restores it', async () => {
+test('reset changes only camera orientation and preserves slice, cut, zoom, and pan', async () => {
   const app = await viewer();
   app.input('clipSlider', '0.25');
+  app.input('slider', '0.4');
+  app.elements.modeSelect.value = '2';
+  app.elements.modeSelect.dispatchEvent(new Event('change'));
+  app.elements.qualitySelect.value = '2';
+  // Pan through the same pointer events used by Shift-drag.
+  for (const [type, props] of [
+    ['pointerdown', { button: 0, shiftKey: true, pointerId: 1, clientX: 0, clientY: 0 }],
+    ['pointermove', { pointerId: 1, clientX: 20, clientY: 30 }],
+    ['pointerup', { pointerId: 1 }],
+  ]) {
+    const event = new Event(type);
+    Object.assign(event, props);
+    app.elements.gfx.dispatchEvent(event);
+  }
   app.frame();
   const initial = app.uniforms.slice(10, 12);
   app.key('ArrowRight');
@@ -146,10 +160,18 @@ test('clip orientation stays fixed through orbit and zoom until aligned, and res
   app.key('ArrowRight');
   app.frame();
   assert.notDeepEqual(app.uniforms.slice(10, 12), app.uniforms.slice(5, 7));
-  app.elements.resetButton.dispatchEvent(new Event('click'));
-  app.frame();
-  assert.deepEqual(app.uniforms.slice(10, 12), initial);
-  assert.equal(app.uniforms[7], -3);
+  const before = [...app.uniforms];
+  for (const trigger of [() => app.elements.resetButton.dispatchEvent(new Event('click')), () => app.key('r')]) {
+    app.key('ArrowRight');
+    trigger();
+    app.frame();
+    assert.deepEqual(app.uniforms.slice(5, 7), initial);
+    for (const index of [2, 3, 4, 7, 8, 9, 10, 11]) assert.equal(app.uniforms[index], before[index]);
+    assert.equal(app.elements.modeSelect.value, '2');
+    assert.equal(app.elements.slider.value, '0.4');
+    assert.equal(app.elements.clipSlider.value, '0.25');
+    assert.equal(app.elements.qualitySelect.value, '2');
+  }
 });
 
 
@@ -171,7 +193,7 @@ test('alignment eases between frames, keeps depth, and stops rendering on comple
   assert.equal(app.pending, 0);
 });
 
-test('alignment takes the short arc after a full orbit and can be retargeted or reset', async () => {
+test('alignment takes the short arc, can be retargeted, and survives camera reset', async () => {
   const app = await viewer();
   for (let i = 0; i < 64; i++) app.key('ArrowRight');
   app.frame();
@@ -191,7 +213,10 @@ test('alignment takes the short arc after a full orbit and can be retargeted or 
   app.frame(100);
   app.elements.resetButton.dispatchEvent(new Event('click'));
   app.frame();
-  assert.equal(app.uniforms[11], 0);
+  assert.equal(app.uniforms[6], 0);
+  assert.equal(app.pending, 1);
+  app.frame(350);
+  assert.ok(Math.abs(app.uniforms[11] - (6.6 - 2 * Math.PI)) < 1e-6);
   assert.equal(app.pending, 0);
 });
 

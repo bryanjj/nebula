@@ -140,23 +140,8 @@ document.getElementById('alignClipButton').addEventListener('click', () => {
 qualitySelect.addEventListener('change', () => { resizeCanvas(); invalidate(); });
 
 function reset() {
-  clipAnimation = null;
   rotationX = 0.3;
   rotationY = 0;
-  clipRotationX = rotationX;
-  clipRotationY = rotationY;
-  zoom = 1;
-  panX = panY = 0;
-  mode = 0;
-  sliderVal = 0;
-  clipVal = -3;
-  modeSelect.value = '0';
-  slider.value = '0';
-  clipSlider.value = '-3';
-  sliderValue.textContent = '0.000';
-  clipValue.textContent = '-3.00';
-  slider.ariaLabel = sliderDimNames[0];
-  updateAxisGuide();
   invalidate();
 }
 document.getElementById('resetButton').addEventListener('click', reset);
@@ -743,9 +728,26 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 // Browsers can restore form values on reload or history navigation without
 // firing input events. Reset both the controls and renderer state together.
 function resetOnLoad() {
+  clipAnimation = null;
+  rotationX = 0.3;
+  rotationY = 0;
+  clipRotationX = rotationX;
+  clipRotationY = rotationY;
+  zoom = 1;
+  panX = panY = 0;
+  mode = 0;
+  sliderVal = 0;
+  clipVal = -3;
+  modeSelect.value = '0';
+  slider.value = '0';
+  clipSlider.value = '-3';
+  sliderValue.textContent = '0.000';
+  clipValue.textContent = '-3.00';
+  slider.ariaLabel = sliderDimNames[0];
+  updateAxisGuide();
   qualitySelect.value = '1';
-  reset();
   resizeCanvas();
+  invalidate();
 }
 window.addEventListener('pageshow', resetOnLoad);
 resetOnLoad();

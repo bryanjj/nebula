@@ -25,9 +25,9 @@ Open **http://localhost:8000** in a WebGPU-enabled browser with hardware acceler
 - Right-drag or Shift-drag to pan.
 - Scroll up to zoom in; scroll down to zoom out.
 - Choose **Re(z₀)**, **Im(z₀)**, **Re(c)**, or **Im(c)** in the dropdown above the slice slider. The slider controls that coordinate; the other three form the visible volume. An axis guide in the canvas corner rotates with the camera to show the visible coordinates’ directions. Its labels change with the selected slider dimension.
-- **Clip plane** cuts into the volume; its minimum disables clipping. The cut stays fixed to the fractal as you orbit, zoom, or pan. **Align to view** smoothly rotates the plane to face the current camera while keeping the depth value. **Reset view** also restores the plane’s initial orientation.
+- **Clip plane** cuts into the volume; its minimum disables clipping. The cut stays fixed to the fractal as you orbit, zoom, or pan. **Align to view** smoothly rotates the plane to face the current camera while keeping the depth value.
 - **Resolution** changes the render scale. Rendering is capped at two million pixels and only runs after input, resize, or returning to the tab.
-- **Reset view** restores the camera, slice coordinate, slice value, and clip plane.
+- **Reset view** (or `R`) restores only the camera orientation. It preserves the slider dimension, both slider values, clip-plane orientation, zoom, pan, and resolution. Refresh the page to restore all defaults.
 - Focus the canvas for arrow-key orbit, `+` / `−` zoom, and `R` reset.
 
 `four_d_fractal_webgpu.html` forwards to the same explorer. `cam_test.html` and `test_webgpu.html` remain small standalone camera/WebGPU experiments.
