@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { probeDistances, probeCutaway, referenceDistance } from './shader-probe.js';
+import { probeDistances, probeCutaway, probeAdaptiveDetail, referenceDistance } from './shader-probe.js';
 import { chromium } from 'playwright';
 
 let server;
@@ -225,6 +225,20 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     }
     const source = await readFile(new URL('../explorer.js', import.meta.url), 'utf8');
     const shader = source.split('const shaderCode = /* wgsl */`')[1].split('`;')[0];
+    const adaptive = await page.evaluate(probeAdaptiveDetail, shader);
+    assert.deepEqual(adaptive[0], adaptive[1], 'small and large bubbles cost the same for a distant surface');
+    assert.equal(adaptive[0][1], 80, 'distant surfaces retain the base iteration budget');
+    assert.ok(adaptive[2][0] < adaptive[0][0] && adaptive[2][1] > adaptive[0][1]);
+    assert.ok(adaptive[3][0] < adaptive[2][0] && adaptive[3][1] > adaptive[2][1]);
+    assert.ok(adaptive[4][0] < adaptive[2][0], 'more canvas pixels resolve finer features');
+    assert.equal(adaptive[2][2], 0, 'the coarse field fills a late-escaping point');
+    assert.ok(adaptive[3][3] > adaptive[3][0], 'refinement opens that point at the visible scale');
+    for (const row of adaptive) {
+      assert.ok(row.every(Number.isFinite));
+      assert.equal(row[4], 0, 'true solid remains solid');
+      assert.equal(row[5], row[6], 'early escape stays unchanged');
+      assert.ok(row[7] <= 512, 'iteration work is bounded even at zero distance');
+    }
     const cutSamples = await page.evaluate(probeCutaway, shader);
     const expectedCuts = [
       [0.5, 0.25, 0, 0, 0.25, 0.5, 1], [0.25, 0, 0, 0, 0, 0.25, 1],

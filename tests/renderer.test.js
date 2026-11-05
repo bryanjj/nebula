@@ -393,7 +393,7 @@ test('Fly enters from the orbit pose, turns in place, strafes, and restores the 
   assert.equal(app.pending, 0);
 });
 
-test('flight slows near the cut, refines precision, backs out, and resets safely', async () => {
+test('flight slows near the cut, backs out, and resets safely', async () => {
   const app = await viewer();
   app.elements.flyButton.dispatchEvent(new Event('click'));
   app.frame();
@@ -412,7 +412,7 @@ test('flight slows near the cut, refines precision, backs out, and resets safely
   app.key('w');
   app.frame();
   assert.ok(near - app.uniforms[14] < firstStep / 10);
-  assert.ok(app.uniforms[3] > 10, 'detail increases near the surface');
+  assert.equal(app.uniforms[3], 1, 'Fly precision is chosen per ray in the shader');
   const closer = app.uniforms[14];
   app.key('s');
   app.frame();
@@ -494,7 +494,7 @@ test('Cutaway crosses solid material, changes size without moving, and is inacti
 });
 
 
-test('logarithmic bubble sizes retain tiny values, with matching speed and detail', async () => {
+test('logarithmic bubble sizes retain tiny values with matching movement speed', async () => {
   const app = await viewer();
   app.elements.flyButton.dispatchEvent(new Event('click'));
   app.elements.cutawayButton.dispatchEvent(new Event('click'));
@@ -516,7 +516,7 @@ test('logarithmic bubble sizes retain tiny values, with matching speed and detai
   app.input('bubbleSlider', '0');
   app.frame();
   assert.deepEqual(app.uniforms.slice(12, 15), before, 'resizing does not move the camera');
-  assert.equal(app.uniforms[3], 1000, 'precision increases for a 0.001 cavity');
+  assert.equal(app.uniforms[3], 1, 'bubble size does not impose a view-wide detail level');
   app.key('w');
   app.frame();
   assert.ok(Math.abs((before[2] - app.uniforms[14]) - 0.00012) < 1e-7, 'movement scales to the tiny radius');

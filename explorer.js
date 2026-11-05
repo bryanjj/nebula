@@ -180,7 +180,8 @@ function cameraBasis(pitch = rotationX, yaw = rotationY) {
 }
 
 // CPU counterpart of the shader's pseudo-distance, used only for navigation.
-// Keep the same mapping, derivative weights, iteration limit, and clipping.
+// Keep the same mapping, derivative weights, and clipping. Navigation uses
+// the conservative 80-iteration field; visible Fly hits can refine further.
 function navigationDistance(p) {
   const [x, y, z] = p;
   let [a, b, c, d] = [
@@ -208,10 +209,6 @@ function navigationDistance(p) {
 }
 
 function activeBubbleRadius() { return flying && cutaway ? bubbleRadius : 0; }
-function flightDetail() {
-  const minDistance = cutaway ? 0.001 : 0.01;
-  return Math.max(1, 1 / Math.max(navigationDistance(flyPosition), activeBubbleRadius(), minDistance));
-}
 
 function updateNavigationUI() {
   orbitButton.setAttribute('aria-pressed', String(!flying));
@@ -396,7 +393,7 @@ async function init() {
   resizeCanvas();
 
   // Uniforms: 5 vec4<f32> = 20 floats
-  // data1: resolution.x, resolution.y, sliderVal, orbit zoom or flight detail
+  // data1: resolution.x, resolution.y, sliderVal, orbit zoom (1 in Fly)
   // data2: mode, rotationX, rotationY, clipDist
   // data3: panX, panY, clipRotationX, clipRotationY
   // data4: flyPosition.xyz, flying
@@ -409,7 +406,7 @@ async function init() {
 
   const shaderCode = /* wgsl */`
 struct Uniforms {
-  data1 : vec4<f32>, // res.x, res.y, slider, orbit zoom or flight detail
+  data1 : vec4<f32>, // res.x, res.y, slider, orbit zoom (1 in Fly)
   data2 : vec4<f32>, // mode, rotationX, rotationY, clipDist
   data3 : vec4<f32>, // panX, panY, clipRotationX, clipRotationY
   data4 : vec4<f32>, // flyPosition.xyz, flying
@@ -520,12 +517,11 @@ fn map_to_fractal(p: vec3<f32>, mode: i32, slider: f32) -> FractalMap {
 // Distance-estimation-style function for z_{n+1} = z_n^2 + c
 // Use both orbit derivatives because the visible slice varies initial z as
 // well as c. This remains a pseudo-distance, not an exact signed distance.
-fn fractal_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
+fn fractal_distance_at(p: vec3<f32>, mode: i32, slider: f32, maxIter: i32) -> f32 {
   let mp = map_to_fractal(p, mode, slider);
   var z  = mp.z0;
   let c  = mp.c;
 
-  let maxIter : i32 = 80;
   let bailout : f32 = 8.0;
   let bailout2 = bailout * bailout;
 
@@ -574,13 +570,28 @@ fn fractal_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
   return clamp(de, 0.0, 1.0);
 }
 
+// Coarse field for travel through empty space and the unchanged Orbit view.
+fn fractal_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
+  return fractal_distance_at(p, mode, slider, 80);
+}
+
+// Approximate a third of a pixel at this ray distance (45-degree vertical FOV).
+// The floor avoids chasing detail below useful f32 coordinate precision.
+fn fly_epsilon(rayDistance: f32) -> f32 {
+  let pixelWidth = 0.82842712 * max(rayDistance, 0.0) / max(getResolution().y, 1.0);
+  return clamp(pixelWidth * 0.35, 0.0000002, 0.001);
+}
+
+fn fly_iterations(epsilon: f32) -> i32 {
+  return i32(clamp(80.0 + 40.0 * log2(0.001 / epsilon), 80.0, 512.0));
+}
+
 // Get escape time for coloring (returns 0-1 normalized value)
-fn get_escape_time(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
+fn get_escape_time(p: vec3<f32>, mode: i32, slider: f32, maxIter: i32) -> f32 {
   let mp = map_to_fractal(p, mode, slider);
   var z = mp.z0;
   let c = mp.c;
 
-  let maxIter: i32 = 80;
   let bailout: f32 = 8.0;
   let bailout2 = bailout * bailout;
 
@@ -595,7 +606,7 @@ fn get_escape_time(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
       let log_zn = log(r2) * 0.5;
       let nu = log(log_zn / log(bailout)) / log(2.0);
       let smooth_i = f32(i) + 1.0 - nu;
-      return smooth_i / f32(maxIter);
+      return min(smooth_i / 80.0, 1.0);
     }
   }
 
@@ -604,14 +615,14 @@ fn get_escape_time(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
 }
 
 // Estimate normal from distance field via central differences
-fn estimate_normal(p: vec3<f32>, mode: i32, slider: f32, zoom: f32) -> vec3<f32> {
+fn estimate_normal(p: vec3<f32>, mode: i32, slider: f32, zoom: f32, iterations: i32) -> vec3<f32> {
   let eps = 0.003 / zoom;
-  let dx = fractal_distance(p + vec3<f32>(eps, 0.0, 0.0), mode, slider)
-         - fractal_distance(p - vec3<f32>(eps, 0.0, 0.0), mode, slider);
-  let dy = fractal_distance(p + vec3<f32>(0.0, eps, 0.0), mode, slider)
-         - fractal_distance(p - vec3<f32>(0.0, eps, 0.0), mode, slider);
-  let dz = fractal_distance(p + vec3<f32>(0.0, 0.0, eps), mode, slider)
-         - fractal_distance(p - vec3<f32>(0.0, 0.0, eps), mode, slider);
+  let dx = fractal_distance_at(p + vec3<f32>(eps, 0.0, 0.0), mode, slider, iterations)
+         - fractal_distance_at(p - vec3<f32>(eps, 0.0, 0.0), mode, slider, iterations);
+  let dy = fractal_distance_at(p + vec3<f32>(0.0, eps, 0.0), mode, slider, iterations)
+         - fractal_distance_at(p - vec3<f32>(0.0, eps, 0.0), mode, slider, iterations);
+  let dz = fractal_distance_at(p + vec3<f32>(0.0, 0.0, eps), mode, slider, iterations)
+         - fractal_distance_at(p - vec3<f32>(0.0, 0.0, eps), mode, slider, iterations);
   let gradient = vec3<f32>(dx, dy, dz);
   return gradient / max(length(gradient), 1e-8);
 }
@@ -627,21 +638,33 @@ fn getBubbleRadius() -> f32 {
 }
 
 // Removed material must not cast shadows or occlude either exposed cut.
-fn clipped_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
-  var d = fractal_distance(p, mode, slider);
+fn clipped_distance_at(p: vec3<f32>, mode: i32, slider: f32, iterations: i32) -> f32 {
+  var cutDistance = 0.0;
   if (getClipDist() > -2.999) {
-    d = max(d, getClipDist() - dot(p, getClipNormal()));
+    cutDistance = max(cutDistance, getClipDist() - dot(p, getClipNormal()));
   }
   let radius = getBubbleRadius();
   if (radius > 0.0) {
-    d = max(d, radius - distance(p, uniforms.data4.xyz));
+    cutDistance = max(cutDistance, radius - distance(p, uniforms.data4.xyz));
   }
-  return d;
+  // Inside removed material, the cut alone gives a conservative empty-space
+  // distance. No fractal iterations are needed for these lighting samples.
+  if (cutDistance > 0.0 && uniforms.data4.w > 0.5) { return cutDistance; }
+  return max(cutDistance, fractal_distance_at(p, mode, slider, iterations));
+}
+
+fn clipped_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
+  return clipped_distance_at(p, mode, slider, 80);
 }
 
 // Soft shadow via secondary raymarch
-fn soft_shadow(origin: vec3<f32>, lightDir: vec3<f32>, mode: i32, slider: f32, lightDistance: f32) -> f32 {
-  let detail = select(1.0, getZoom(), uniforms.data4.w > 0.5);
+fn soft_shadow(origin: vec3<f32>, lightDir: vec3<f32>, mode: i32, slider: f32, lightDistance: f32, detail: f32, iterations: i32) -> f32 {
+  let radius = getBubbleRadius();
+  if (radius > 0.0 && distance(origin, uniforms.data4.xyz) < radius &&
+      distance(origin + lightDir * lightDistance, uniforms.data4.xyz) < radius) {
+    // A segment whose endpoints lie in the spherical cavity is all empty.
+    return 1.0;
+  }
   var t = 0.02 / detail;
   let maxT = min(4.0 / detail, lightDistance);
   var res: f32 = 1.0;
@@ -650,7 +673,7 @@ fn soft_shadow(origin: vec3<f32>, lightDir: vec3<f32>, mode: i32, slider: f32, l
   for (var i: i32 = 0; i < 40; i = i + 1) {
     if (t >= maxT) { break; }
     let p = origin + lightDir * t;
-    let d = clipped_distance(p, mode, slider);
+    let d = clipped_distance_at(p, mode, slider, iterations);
     if (d < 0.001 / detail) {
       return 0.0;
     }
@@ -664,15 +687,14 @@ fn soft_shadow(origin: vec3<f32>, lightDir: vec3<f32>, mode: i32, slider: f32, l
 }
 
 // Very simple AO-like factor sampling along normal
-fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, mode: i32, slider: f32) -> f32 {
+fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, mode: i32, slider: f32, detail: f32, iterations: i32) -> f32 {
   var occ: f32 = 0.0;
   let steps: i32 = 4;
-  let detail = select(1.0, getZoom(), uniforms.data4.w > 0.5);
   let stepSize: f32 = 0.1 / detail;
   for (var i: i32 = 1; i <= steps; i = i + 1) {
     let t = f32(i) * stepSize;
     let sampleP = p + n * t;
-    let d = clipped_distance(sampleP, mode, slider);
+    let d = clipped_distance_at(sampleP, mode, slider, iterations);
     occ = occ + (t - d) * detail;
   }
   occ = occ / f32(steps);
@@ -684,7 +706,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let res = getResolution();
   let slider = getSlider();
   let flying = uniforms.data4.w > 0.5;
-  let detail = getZoom();
+  var detail = getZoom();
   let zoom = select(detail, 1.0, flying);
   let rotX = getRotationX();
   let rotY = getRotationY();
@@ -731,11 +753,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     uv.y * tanFov * up
   );
 
-  // Raymarch - scale precision with orbit zoom or flight clearance
+  // Fly precision follows distance along each ray, not camera clearance.
   let maxDist: f32 = 120.0;
-  let maxSteps: i32 = i32(200.0 + 100.0 * min(detail, 5.0));  // More steps when zoomed in
-  let hitEps: f32 = 0.001 / detail;  // Finer hit detection when zoomed
-  let minStep: f32 = 0.001 / detail;  // Finer minimum step when zoomed
+  let maxSteps: i32 = select(i32(200.0 + 100.0 * min(detail, 5.0)), 700, flying);
+  var hitIterations: i32 = 80;
 
   // March from the camera without a fixed world-space cropping box.
   // The step budget and far distance bound the work, not the visible volume.
@@ -774,14 +795,24 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
     // Scale point by zoom and apply pan offset in camera-relative space
     let pScaled = p / zoom + right * pan.x + up * pan.y;
-    let de = fractal_distance(pScaled, mode, slider) * zoom;  // Scale distance back
+    let hitEps = select(0.001 / detail, fly_epsilon(t), flying);
+    var de = fractal_distance(pScaled, mode, slider) * zoom;
+    // Late-escaping points look solid at 80 iterations. Confirm possible
+    // Fly hits at the visible scale before deciding they are a wall.
+    if (flying && de < hitEps) {
+      hitIterations = fly_iterations(hitEps);
+      if (hitIterations > 80) {
+        de = fractal_distance_at(pScaled, mode, slider, hitIterations);
+      }
+    }
     if (de < hitEps) {
       hit = true;
       hitPos = p;
+      if (flying) { detail = 0.001 / hitEps; }
       break;
     }
 
-    let stepSize = max(de * 0.7, minStep);
+    let stepSize = max(de * 0.7, select(hitEps, hitEps * 0.5, flying));
     t = t + stepSize;
 
     if (t > rayEnd) {
@@ -797,13 +828,14 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
   // Shading - use scaled coordinates with pan offset for fractal lookups
   let hitPosScaled = hitPos / zoom + right * pan.x + up * pan.y;
-  var n = estimate_normal(hitPosScaled, mode, slider, detail);
-  if (clipDist > -2.999 && abs(dot(hitPosScaled, clipNormal) - clipDist) < 0.00001) {
-    n = -clipNormal;
-  }
-  if (bubble > 0.0 && abs(distance(hitPosScaled, uniforms.data4.xyz) - bubble) < max(0.000001, bubble * 0.00001)) {
-    // The exposed cavity wall faces inward toward the camera.
+  var n = vec3<f32>(0.0);
+  if (bubble > 0.0 && abs(t - bubble) < max(0.00000001, bubble * 0.00001)) {
+    // The exposed cavity wall faces inward; its normal is analytic.
     n = normalize(uniforms.data4.xyz - hitPosScaled);
+  } else if (clipDist > -2.999 && abs(dot(hitPosScaled, clipNormal) - clipDist) < 0.00001) {
+    n = -clipNormal;
+  } else {
+    n = estimate_normal(hitPosScaled, mode, slider, detail, hitIterations);
   }
   if (dot(n, n) < 0.01) { n = -forward; }
 
@@ -823,11 +855,11 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let spec = pow(max(dot(n, halfDir), 0.0), 40.0);
 
   // Shadows & AO (use scaled coordinates with pan)
-  let sh = soft_shadow(hitPosScaled + n * 0.01 / detail, lightDir, mode, slider, lightDistance);
-  let ao = ambient_occlusion(hitPosScaled, n, mode, slider);
+  let sh = soft_shadow(hitPosScaled + n * 0.01 / detail, lightDir, mode, slider, lightDistance, select(1.0, detail, flying), hitIterations);
+  let ao = ambient_occlusion(hitPosScaled, n, mode, slider, select(1.0, detail, flying), hitIterations);
 
   // Get escape time for coloring
-  let escapeTime = get_escape_time(hitPosScaled, mode, slider);
+  let escapeTime = get_escape_time(hitPosScaled, mode, slider, hitIterations);
 
   // Colormap based on escape time (single cycle across surface)
   let t_color = escapeTime;  // Single color cycle
@@ -885,7 +917,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     data[0] = canvas.width;
     data[1] = canvas.height;
     data[2] = sliderVal;
-    data[3] = flying ? flightDetail() : zoom;
+    data[3] = flying ? 1 : zoom;
     data[4] = mode;
     data[5] = rotationX;
     data[6] = rotationY;

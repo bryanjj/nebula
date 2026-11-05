@@ -97,7 +97,7 @@ export async function probeCutaway(shader) {
         if (radius > 0.0) {
           let wallOffset = 0.01 / getZoom();
           let origin = center + vec3f(0, 0, -radius + wallOffset);
-          results[6] = soft_shadow(origin, vec3f(0, 0, 1), 1, 0.0, radius - wallOffset);
+          results[6] = soft_shadow(origin, vec3f(0, 0, 1), 1, 0.0, radius - wallOffset, getZoom(), 80);
         }
       }
     ` });
@@ -125,6 +125,64 @@ export async function probeCutaway(shader) {
       pass.dispatchWorkgroups(1);
       pass.end();
       encoder.copyBufferToBuffer(output, 0, readback, 0, 28);
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(GPUMapMode.READ);
+      samples.push(Array.from(new Float32Array(readback.getMappedRange())));
+      readback.unmap();
+    }
+    return samples;
+  } finally {
+    uniform.destroy(); output.destroy(); readback.destroy(); device.destroy();
+  }
+}
+export async function probeAdaptiveDetail(shader) {
+  const adapter = await navigator.gpu.requestAdapter();
+  const device = await adapter.requestDevice();
+  const uniform = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const output = device.createBuffer({ size: 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+  const readback = device.createBuffer({ size: 32, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  try {
+    const module = device.createShaderModule({ code: shader + `
+      @group(0) @binding(1) var<storage, read_write> results: array<f32>;
+      @compute @workgroup_size(1) fn probe() {
+        let epsilon = fly_epsilon(uniforms.data5.y);
+        let budget = fly_iterations(epsilon);
+        results[0] = epsilon;
+        results[1] = f32(budget);
+        // Real c just beyond the Mandelbrot cusp escapes after >80 steps.
+        let p = vec3f(0.2504, 0, 0);
+        results[2] = fractal_distance(p, 1, 0.0);
+        results[3] = fractal_distance_at(p, 1, 0.0, budget);
+        results[4] = fractal_distance_at(vec3f(0, 0, 0), 1, 0.0, budget);
+        results[5] = fractal_distance_at(vec3f(1.7, 0.2, -0.6), 1, 0.35, budget);
+        results[6] = fractal_distance(vec3f(1.7, 0.2, -0.6), 1, 0.35);
+        results[7] = f32(fly_iterations(fly_epsilon(0.0)));
+      }
+    ` });
+    const pipeline = await device.createComputePipelineAsync({ layout: 'auto', compute: { module, entryPoint: 'probe' } });
+    const bindGroup = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: uniform } }, { binding: 1, resource: { buffer: output } },
+    ] });
+    const samples = [];
+    for (const [radius, rayDistance, height] of [
+      [0.001, 5, 1000], [1, 5, 1000], [0.001, 0.01, 1000],
+      [0.001, 0.001, 1000], [0.001, 0.01, 2000],
+    ]) {
+      const data = new Float32Array(20);
+      data[1] = height;
+      data[3] = 1;
+      data[7] = -3;
+      data[15] = 1;
+      data[16] = radius;
+      data[17] = rayDistance;
+      device.queue.writeBuffer(uniform, 0, data);
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.dispatchWorkgroups(1);
+      pass.end();
+      encoder.copyBufferToBuffer(output, 0, readback, 0, 32);
       device.queue.submit([encoder.finish()]);
       await readback.mapAsync(GPUMapMode.READ);
       samples.push(Array.from(new Float32Array(readback.getMappedRange())));
