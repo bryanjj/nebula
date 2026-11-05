@@ -227,9 +227,9 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     const shader = source.split('const shaderCode = /* wgsl */`')[1].split('`;')[0];
     const cutSamples = await page.evaluate(probeCutaway, shader);
     const expectedCuts = [
-      [0.5, 0.25, 0, 0, 0.25, 0.5], [0.25, 0, 0, 0, 0, 0.25],
-      [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0],
-      [0.5, 0.25, 0, 0, 0.35, 0.5], [0.001, 0, 0, 0, 0, 0.001],
+      [0.5, 0.25, 0, 0, 0.25, 0.5, 1], [0.25, 0, 0, 0, 0, 0.25, 1],
+      [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0],
+      [0.5, 0.25, 0, 0, 0.35, 0.5, 1], [0.001, 0, 0, 0, 0, 0.001, 1],
     ];
     cutSamples.forEach((sample, i) => sample.forEach((value, j) => {
       assert.ok(Math.abs(value - expectedCuts[i][j]) < 1e-5, `bubble field case ${i}, sample ${j}`);

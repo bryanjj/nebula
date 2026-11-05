@@ -640,14 +640,15 @@ fn clipped_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
 }
 
 // Soft shadow via secondary raymarch
-fn soft_shadow(origin: vec3<f32>, lightDir: vec3<f32>, mode: i32, slider: f32) -> f32 {
+fn soft_shadow(origin: vec3<f32>, lightDir: vec3<f32>, mode: i32, slider: f32, lightDistance: f32) -> f32 {
   let detail = select(1.0, getZoom(), uniforms.data4.w > 0.5);
   var t = 0.02 / detail;
-  let maxT: f32 = 4.0 / detail;
+  let maxT = min(4.0 / detail, lightDistance);
   var res: f32 = 1.0;
   let k: f32 = 16.0;
 
   for (var i: i32 = 0; i < 40; i = i + 1) {
+    if (t >= maxT) { break; }
     let p = origin + lightDir * t;
     let d = clipped_distance(p, mode, slider);
     if (d < 0.001 / detail) {
@@ -808,13 +809,21 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
   // Light - positioned behind and above camera
   let viewDir = normalize(camPos - hitPos);
-  let lightDir = normalize(viewDir + up * 0.3);  // Light from camera direction, slightly above
+  var lightDir = normalize(viewDir + up * 0.3);
+  var lightDistance = 4.0;
+  if (bubble > 0.0) {
+    // Keep the lamp inside the cavity. Shadow rays stop at the lamp instead
+    // of continuing through it and hitting the opposite cavity wall.
+    let lightPosition = camPos + up * bubble * 0.3;
+    lightDir = normalize(lightPosition - hitPos);
+    lightDistance = length(lightPosition - (hitPos + n * 0.01 / detail));
+  }
   let diff = max(dot(n, lightDir), 0.0);
   let halfDir = normalize(lightDir + viewDir);
   let spec = pow(max(dot(n, halfDir), 0.0), 40.0);
 
   // Shadows & AO (use scaled coordinates with pan)
-  let sh = soft_shadow(hitPosScaled + n * 0.01 / detail, lightDir, mode, slider);
+  let sh = soft_shadow(hitPosScaled + n * 0.01 / detail, lightDir, mode, slider, lightDistance);
   let ao = ambient_occlusion(hitPosScaled, n, mode, slider);
 
   // Get escape time for coloring
