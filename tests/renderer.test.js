@@ -138,7 +138,7 @@ test('pipeline rejection becomes a visible error with no scheduled work', async 
 });
 
 
-test('reset changes only camera orientation and preserves slice, cut, zoom, and pan', async () => {
+test('reset restores camera orientation and zoom while preserving slice, cut, and pan', async () => {
   const app = await viewer();
   app.input('clipSlider', '0.25');
   app.input('slider', '0.4');
@@ -172,10 +172,14 @@ test('reset changes only camera orientation and preserves slice, cut, zoom, and 
   const before = [...app.uniforms];
   for (const trigger of [() => app.elements.resetButton.dispatchEvent(new Event('click')), () => app.key('r')]) {
     app.key('ArrowRight');
+    app.key('+');
+    app.frame();
+    assert.notEqual(app.uniforms[3], 1);
     trigger();
     app.frame();
     assert.deepEqual(app.uniforms.slice(5, 7), initial);
-    for (const index of [2, 3, 4, 7, 8, 9, 10, 11]) assert.equal(app.uniforms[index], before[index]);
+    assert.equal(app.uniforms[3], 1);
+    for (const index of [2, 4, 7, 8, 9, 10, 11]) assert.equal(app.uniforms[index], before[index]);
     assert.equal(app.elements.modeSelect.value, '2');
     assert.equal(app.elements.slider.value, '0.4');
     assert.equal(app.elements.clipSlider.value, '0.25');

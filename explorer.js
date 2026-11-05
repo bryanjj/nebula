@@ -140,6 +140,7 @@ document.getElementById('alignClipButton').addEventListener('click', () => {
 function reset() {
   rotationX = 0.3;
   rotationY = 0;
+  zoom = 1;
   invalidate();
 }
 document.getElementById('resetButton').addEventListener('click', reset);

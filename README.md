@@ -26,7 +26,7 @@ Open **http://localhost:8000** in a WebGPU-enabled browser with hardware acceler
 - Scroll up to zoom in; scroll down to zoom out.
 - Choose **Re(z₀)**, **Im(z₀)**, **Re(c)**, or **Im(c)** in the dropdown above the slice slider. The slider controls that coordinate; the other three form the visible volume. An axis guide in the canvas corner rotates with the camera to show the visible coordinates’ directions. Its labels change with the selected slider dimension.
 - **Clip plane** cuts into the volume; its minimum disables clipping. The cut stays fixed to the fractal as you orbit, zoom, or pan. **Align to view** smoothly rotates the plane to face the current camera while keeping the depth value.
-- **Reset view** (or `R`) restores only the camera orientation. It preserves the slider dimension, both slider values, clip-plane orientation, zoom, and pan. Refresh the page to restore all defaults.
+- **Reset view** (or `R`) restores the camera orientation and zoom. It preserves the slider dimension, both slider values, clip-plane orientation, and pan. Refresh the page to restore all defaults.
 - Focus the canvas for arrow-key orbit, `+` / `−` zoom, and `R` reset.
 
 Rendering always uses the High render scale, capped at two million pixels, and only runs after input, resize, or returning to the tab.
