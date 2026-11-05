@@ -21,6 +21,10 @@ async function viewer({ failPipeline = false, reducedMotion = false, restoredCon
   }
   const ids = ['gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'retryButton', 'resetButton', 'alignClipButton', 'axisGuide', 'axisXLabel', 'axisYLabel', 'axisZLabel', 'axisXArrow', 'axisYArrow', 'axisZArrow'];
   const elements = Object.fromEntries(ids.map((id) => [id, new Element()]));
+  elements.slider.min = '-1.5';
+  elements.slider.max = '1.5';
+  elements.clipSlider.min = '-3';
+  elements.clipSlider.max = '3';
   if (restoredControls) {
     elements.slider.value = '0.7';
     elements.clipSlider.value = '1.2';
@@ -92,6 +96,46 @@ test('renders once, stays idle, and coalesces input into one frame', async () =>
   assert.equal(app.submitted, 2);
   assert.equal(app.pending, 0);
   assert.equal(app.elements.sliderValue.textContent, '0.400');
+});
+
+test('both sliders snap pointer input to zero and allow precise keyboard input', async () => {
+  const app = await viewer();
+  for (const [id, output, precision, uniform, edge, step] of [
+    ['slider', 'sliderValue', 3, 2, 0.06, 0.001],
+    ['clipSlider', 'clipValue', 2, 7, 0.12, 0.01],
+  ]) {
+    const control = app.elements[id];
+    control.dispatchEvent(new Event('pointerdown'));
+    // The previous slider blurs after pointerdown when focus changes.
+    app.elements[id === 'slider' ? 'clipSlider' : 'slider'].dispatchEvent(new Event('blur'));
+    for (const value of [-edge, -step, 0, step, edge]) {
+      app.input(id, String(value));
+      app.frame();
+      assert.equal(control.value, '0');
+      assert.equal(app.elements[output].textContent, (0).toFixed(precision));
+      assert.equal(app.uniforms[uniform], 0);
+    }
+    for (const value of [-edge - step, edge + step]) {
+      app.input(id, String(value));
+      app.frame();
+      assert.equal(Number(control.value), value);
+      assert.ok(Math.abs(app.uniforms[uniform] - value) < 1e-7);
+    }
+    for (const endEvent of ['pointerup', 'pointercancel', 'blur']) {
+      control.dispatchEvent(new Event('pointerdown'));
+      app.window.dispatchEvent(new Event(endEvent));
+      app.input(id, String(step));
+      app.frame();
+      assert.equal(Number(control.value), step);
+      assert.ok(Math.abs(app.uniforms[uniform] - step) < 1e-7);
+    }
+    control.dispatchEvent(new Event('pointerdown'));
+    control.dispatchEvent(new Event('keydown'));
+    app.input(id, String(-step));
+    app.frame();
+    assert.equal(Number(control.value), -step);
+    assert.ok(Math.abs(app.uniforms[uniform] + step) < 1e-7);
+  }
 });
 
 test('uses High render scale and caps large canvases at two million pixels', async () => {
@@ -247,6 +291,9 @@ test('axis guide projects world axes through the camera basis and ignores zoom',
   const arrow = (axis) => app.elements[`axis${axis}Arrow`].attributes.d;
   const initialX = arrow('X');
   assert.match(initialX, /^M80 70 L116 70 /);
+  assert.match(arrow('Y'), /^M80 70 L80 34 /);
+  assert.equal(arrow('Z'), 'M80 70 L80 70');
+  assert.deepEqual(['X', 'Y', 'Z'].map(axis => app.elements[`axis${axis}Label`].textContent), ['Re(c)', 'Im(c)', 'Im(z₀)']);
   for (let i = 0; i < 16; i++) app.key('ArrowRight');
   const zLabel = app.elements.axisZLabel.attributes;
   assert.ok(Number(zLabel.x) < 30, 'positive Z points left after a quarter orbit');
@@ -263,11 +310,13 @@ test('page load discards restored controls and keeps the first slider input in s
   const app = await viewer({ restoredControls: true });
   app.frame();
   assert.equal(app.elements.slider.value, '0');
-  assert.equal(app.elements.clipSlider.value, '-3');
-  assert.equal(app.elements.modeSelect.value, '0');
+  assert.equal(app.elements.clipSlider.value, '0');
+  assert.equal(app.elements.modeSelect.value, '1');
   assert.equal(app.uniforms[2], 0);
-  assert.equal(app.uniforms[4], 0);
-  assert.equal(app.uniforms[7], -3);
+  assert.equal(app.uniforms[4], 1);
+  assert.deepEqual(app.uniforms.slice(5, 7), [0, 0]);
+  assert.deepEqual(app.uniforms.slice(10, 12), [0, 0]);
+  assert.equal(app.uniforms[7], 0);
   app.input('slider', '0.001');
   app.frame();
   assert.ok(Math.abs(app.uniforms[2] - 0.001) < 1e-8);
@@ -277,5 +326,5 @@ test('page load discards restored controls and keeps the first slider input in s
   app.frame();
   assert.equal(app.uniforms[2], 0);
   assert.equal(app.uniforms[6], 0);
-  assert.equal(app.uniforms[7], -3);
+  assert.equal(app.uniforms[7], 0);
 });

@@ -21,12 +21,15 @@ python3 -m http.server 8000 --bind 127.0.0.1
 
 Open **http://localhost:8000** in a WebGPU-enabled browser with hardware acceleration. Use localhost or HTTPS; opening the HTML directly is not the supported startup path. If WebGPU cannot initialize, the status area shows the failure and a Retry button.
 
+The opening view features the Mandelbrot set: **Re(z₀) = 0** and **Clip plane = 0**, viewed straight onto the **Im(z₀) = 0** cut. **Re(c)** points right, **Im(c)** points up, and **Im(z₀)** is perpendicular to the screen.
+
 - Drag (or single-finger drag) to orbit.
 - Right-drag or Shift-drag to pan.
 - Scroll up to zoom in; scroll down to zoom out.
 - Choose **Re(z₀)**, **Im(z₀)**, **Re(c)**, or **Im(c)** in the dropdown above the slice slider. The slider controls that coordinate; the other three form the visible volume. An axis guide in the canvas corner rotates with the camera to show the visible coordinates’ directions. Its labels change with the selected slider dimension.
 - **Clip plane** cuts into the volume; its minimum disables clipping. The cut stays fixed to the fractal as you orbit, zoom, or pan. **Align to view** smoothly rotates the plane to face the current camera while keeping the depth value.
 - **Reset view** (or `R`) restores the camera orientation and zoom. It preserves the slider dimension, both slider values, clip-plane orientation, and pan. Refresh the page to restore all defaults.
+- Both sliders snap to zero when dragged near the center. Use the arrow keys on a focused slider for precise adjustments near zero.
 - Focus the canvas for arrow-key orbit, `+` / `−` zoom, and `R` reset.
 
 Rendering always uses the High render scale, capped at two million pixels, and only runs after input, resize, or returning to the tab.
