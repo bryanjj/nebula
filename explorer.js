@@ -591,7 +591,8 @@ fn fractal_distance_at(p: vec3<f32>, mode: i32, slider: f32, maxIter: i32) -> f3
       escaped = true;
       break;
     }
-    if (maxIter > 80) {
+    if (maxIter > 80 && (i & 15) == 0) {
+      // Check every 16 iterations to keep the escape-path overhead small.
       // An exactly repeating f32 orbit cannot subsequently escape. Brent's
       // checkpoint schedule catches stable interiors without a large history.
       if (all(z == checkpoint)) { return 0.0; }
@@ -675,7 +676,7 @@ fn get_escape_time(p: vec3<f32>, mode: i32, slider: f32, maxIter: i32) -> f32 {
       }
       return originalColor;
     }
-    if (maxIter > 80) {
+    if (maxIter > 80 && (i & 15) == 0) {
       if (all(z == checkpoint)) { return 1.0; }
       checkpointAge += 1;
       if (checkpointAge == checkpointPeriod) {
