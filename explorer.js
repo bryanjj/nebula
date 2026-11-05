@@ -5,7 +5,6 @@ const clipSlider = document.getElementById('clipSlider');
 const clipValue = document.getElementById('clipValue');
 const modeSelect = document.getElementById('modeSelect');
 const statusEl = document.getElementById('status');
-const qualitySelect = document.getElementById('qualitySelect');
 const retryButton = document.getElementById('retryButton');
 const sliderDimNames = ['Im(c)', 'Re(z₀)', 'Im(z₀)', 'Re(c)'];
 // X/Y/Z order matches map_to_fractal in the shader. Labels follow the selected slice; orientation follows the camera.
@@ -137,26 +136,11 @@ document.getElementById('alignClipButton').addEventListener('click', () => {
   };
   invalidate();
 });
-qualitySelect.addEventListener('change', () => { resizeCanvas(); invalidate(); });
 
 function reset() {
-  clipAnimation = null;
   rotationX = 0.3;
   rotationY = 0;
-  clipRotationX = rotationX;
-  clipRotationY = rotationY;
   zoom = 1;
-  panX = panY = 0;
-  mode = 0;
-  sliderVal = 0;
-  clipVal = -3;
-  modeSelect.value = '0';
-  slider.value = '0';
-  clipSlider.value = '-3';
-  sliderValue.textContent = '0.000';
-  clipValue.textContent = '-3.00';
-  slider.ariaLabel = sliderDimNames[0];
-  updateAxisGuide();
   invalidate();
 }
 document.getElementById('resetButton').addEventListener('click', reset);
@@ -230,8 +214,8 @@ async function init() {
 
   resizeCanvas = () => {
     const rect = canvas.getBoundingClientRect();
-    // Cap both device pixels and total work: raymarching is expensive on Retina displays.
-    let scale = Math.min(window.devicePixelRatio || 1, 2) * Number(qualitySelect.value);
+    // Use the High render scale, capped for Retina displays and total raymarching work.
+    let scale = Math.min(window.devicePixelRatio || 1, 2) * 2;
     scale = Math.min(scale, Math.sqrt(2_000_000 / Math.max(1, rect.width * rect.height)));
     const limit = device.limits.maxTextureDimension2D;
     scale = Math.min(scale, limit / Math.max(1, rect.width), limit / Math.max(1, rect.height));
@@ -743,9 +727,25 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 // Browsers can restore form values on reload or history navigation without
 // firing input events. Reset both the controls and renderer state together.
 function resetOnLoad() {
-  qualitySelect.value = '1';
-  reset();
+  clipAnimation = null;
+  rotationX = 0.3;
+  rotationY = 0;
+  clipRotationX = rotationX;
+  clipRotationY = rotationY;
+  zoom = 1;
+  panX = panY = 0;
+  mode = 0;
+  sliderVal = 0;
+  clipVal = -3;
+  modeSelect.value = '0';
+  slider.value = '0';
+  clipSlider.value = '-3';
+  sliderValue.textContent = '0.000';
+  clipValue.textContent = '-3.00';
+  slider.ariaLabel = sliderDimNames[0];
+  updateAxisGuide();
   resizeCanvas();
+  invalidate();
 }
 window.addEventListener('pageshow', resetOnLoad);
 resetOnLoad();
