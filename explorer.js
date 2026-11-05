@@ -5,7 +5,6 @@ const clipSlider = document.getElementById('clipSlider');
 const clipValue = document.getElementById('clipValue');
 const modeSelect = document.getElementById('modeSelect');
 const statusEl = document.getElementById('status');
-const qualitySelect = document.getElementById('qualitySelect');
 const retryButton = document.getElementById('retryButton');
 const sliderDimNames = ['Im(c)', 'Re(z₀)', 'Im(z₀)', 'Re(c)'];
 // X/Y/Z order matches map_to_fractal in the shader. Labels follow the selected slice; orientation follows the camera.
@@ -137,7 +136,6 @@ document.getElementById('alignClipButton').addEventListener('click', () => {
   };
   invalidate();
 });
-qualitySelect.addEventListener('change', () => { resizeCanvas(); invalidate(); });
 
 function reset() {
   rotationX = 0.3;
@@ -215,8 +213,8 @@ async function init() {
 
   resizeCanvas = () => {
     const rect = canvas.getBoundingClientRect();
-    // Cap both device pixels and total work: raymarching is expensive on Retina displays.
-    let scale = Math.min(window.devicePixelRatio || 1, 2) * Number(qualitySelect.value);
+    // Use the High render scale, capped for Retina displays and total raymarching work.
+    let scale = Math.min(window.devicePixelRatio || 1, 2) * 2;
     scale = Math.min(scale, Math.sqrt(2_000_000 / Math.max(1, rect.width * rect.height)));
     const limit = device.limits.maxTextureDimension2D;
     scale = Math.min(scale, limit / Math.max(1, rect.width), limit / Math.max(1, rect.height));
@@ -745,7 +743,6 @@ function resetOnLoad() {
   clipValue.textContent = '-3.00';
   slider.ariaLabel = sliderDimNames[0];
   updateAxisGuide();
-  qualitySelect.value = '1';
   resizeCanvas();
   invalidate();
 }

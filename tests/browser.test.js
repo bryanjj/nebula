@@ -96,12 +96,10 @@ test('refresh resets controls before the next slider input', async () => {
     await page.getByLabel('Slider dimension').selectOption('2');
     await page.locator('#slider').press('End');
     await page.getByLabel('Clip plane', { exact: true }).press('End');
-    await page.getByLabel('Resolution', { exact: true }).selectOption('2');
     await page.reload();
     assert.equal(await page.getByLabel('Slider dimension').inputValue(), '0');
     assert.equal(await page.locator('#slider').inputValue(), '0');
     assert.equal(await page.locator('#clipSlider').inputValue(), '-3');
-    assert.equal(await page.getByLabel('Resolution', { exact: true }).inputValue(), '1');
     assert.equal(await page.locator('#sliderValue').innerText(), '0.000');
     assert.equal(await page.locator('#clipValue').innerText(), '-3.00');
     await page.locator('#slider').press('ArrowRight');
@@ -191,7 +189,6 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     for (let i = 0; i < 32; i++) await page.keyboard.press('ArrowRight');
     await page.keyboard.press('+');
     await page.keyboard.press('ArrowLeft');
-    await page.getByLabel('Resolution', { exact: true }).selectOption('0.5');
     await page.waitForTimeout(200);
     assert.equal(await page.locator('#status').getAttribute('data-error'), null);
     assert.deepEqual(errors, []);

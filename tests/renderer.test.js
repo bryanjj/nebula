@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 // Exercise scheduling and GPU failure recovery without depending on a driver.
-async function viewer({ failPipeline = false, reducedMotion = false, restoredControls = false } = {}) {
+async function viewer({ failPipeline = false, reducedMotion = false, restoredControls = false, width = 360, height = 400 } = {}) {
   class Element extends EventTarget {
     value = '0';
     textContent = '';
@@ -17,11 +17,10 @@ async function viewer({ failPipeline = false, reducedMotion = false, restoredCon
     setAttribute(name, value) { this.attributes[name] = String(value); }
     focus() {}
     setPointerCapture() {}
-    getBoundingClientRect() { return { width: 360, height: 400 }; }
+    getBoundingClientRect() { return { width, height }; }
   }
-  const ids = ['gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'qualitySelect', 'retryButton', 'resetButton', 'alignClipButton', 'axisGuide', 'axisXLabel', 'axisYLabel', 'axisZLabel', 'axisXArrow', 'axisYArrow', 'axisZArrow'];
+  const ids = ['gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'retryButton', 'resetButton', 'alignClipButton', 'axisGuide', 'axisXLabel', 'axisYLabel', 'axisZLabel', 'axisXArrow', 'axisYArrow', 'axisZArrow'];
   const elements = Object.fromEntries(ids.map((id) => [id, new Element()]));
-  elements.qualitySelect.value = restoredControls ? '2' : '1';
   if (restoredControls) {
     elements.slider.value = '0.7';
     elements.clipSlider.value = '1.2';
@@ -95,6 +94,17 @@ test('renders once, stays idle, and coalesces input into one frame', async () =>
   assert.equal(app.elements.sliderValue.textContent, '0.400');
 });
 
+test('uses High render scale and caps large canvases at two million pixels', async () => {
+  const small = await viewer({ width: 200, height: 150 });
+  small.frame();
+  assert.deepEqual(small.uniforms.slice(0, 2), [800, 600]);
+  const large = await viewer({ width: 1200, height: 800 });
+  large.frame();
+  const [width, height] = large.uniforms;
+  assert.ok(width * height <= 2_000_000);
+  assert.ok(width * height > 1_990_000);
+});
+
 test('hidden tabs defer rendering until visible', async () => {
   const app = await viewer();
   app.frame();
@@ -134,7 +144,6 @@ test('reset changes only camera orientation and preserves slice, cut, zoom, and 
   app.input('slider', '0.4');
   app.elements.modeSelect.value = '2';
   app.elements.modeSelect.dispatchEvent(new Event('change'));
-  app.elements.qualitySelect.value = '2';
   // Pan through the same pointer events used by Shift-drag.
   for (const [type, props] of [
     ['pointerdown', { button: 0, shiftKey: true, pointerId: 1, clientX: 0, clientY: 0 }],
@@ -170,7 +179,6 @@ test('reset changes only camera orientation and preserves slice, cut, zoom, and 
     assert.equal(app.elements.modeSelect.value, '2');
     assert.equal(app.elements.slider.value, '0.4');
     assert.equal(app.elements.clipSlider.value, '0.25');
-    assert.equal(app.elements.qualitySelect.value, '2');
   }
 });
 
@@ -253,7 +261,6 @@ test('page load discards restored controls and keeps the first slider input in s
   assert.equal(app.elements.slider.value, '0');
   assert.equal(app.elements.clipSlider.value, '-3');
   assert.equal(app.elements.modeSelect.value, '0');
-  assert.equal(app.elements.qualitySelect.value, '1');
   assert.equal(app.uniforms[2], 0);
   assert.equal(app.uniforms[4], 0);
   assert.equal(app.uniforms[7], -3);
