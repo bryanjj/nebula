@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { probeDistances, referenceDistance } from './shader-probe.js';
+import { probeDistances, probeCutaway, referenceDistance } from './shader-probe.js';
 import { chromium } from 'playwright';
 
 let server;
@@ -119,6 +119,12 @@ test('Fly controls fit on mobile and return to Orbit on refresh', async () => {
     await page.getByRole('button', { name: 'Fly', exact: true }).click();
     assert.equal(await page.locator('#flyButton').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('#flyReticle').isVisible(), true);
+    assert.equal(await page.locator('#bubbleSlider').isEnabled(), false);
+    await page.getByRole('button', { name: 'Cutaway', exact: true }).click();
+    assert.equal(await page.locator('#bubbleSlider').isEnabled(), true);
+    await page.locator('#bubbleSlider').press('Home');
+    assert.equal(await page.locator('#bubbleValue').innerText(), '0.05');
+    await page.locator('#gfx').focus();
     assert.match(await page.locator('#help').innerText(), /Scroll or W\/S/);
     assert.equal(await page.evaluate(() => document.activeElement.id), 'gfx');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -128,9 +134,12 @@ test('Fly controls fit on mobile and return to Orbit on refresh', async () => {
     await page.getByRole('button', { name: 'Orbit', exact: true }).click();
     assert.equal(await page.locator('#flyReticle').isVisible(), false);
     assert.match(await page.locator('#help').innerText(), /Drag to orbit/);
+    assert.equal(await page.locator('#flyControls').isVisible(), false);
     await page.getByRole('button', { name: 'Fly', exact: true }).click();
     await page.reload();
     assert.equal(await page.locator('#orbitButton').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('#cutawayButton').getAttribute('aria-pressed'), 'false');
+    assert.equal(await page.locator('#bubbleSlider').inputValue(), '0.5');
     assert.equal(await page.locator('#flyReticle').isVisible(), false);
   } finally { await page.close(); }
 });
@@ -211,6 +220,15 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     }
     const source = await readFile(new URL('../explorer.js', import.meta.url), 'utf8');
     const shader = source.split('const shaderCode = /* wgsl */`')[1].split('`;')[0];
+    const cutSamples = await page.evaluate(probeCutaway, shader);
+    const expectedCuts = [
+      [0.5, 0.25, 0, 0, 0.25, 0.5], [0.25, 0, 0, 0, 0, 0.25],
+      [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0],
+      [0.5, 0.25, 0, 0, 0.35, 0.5],
+    ];
+    cutSamples.forEach((sample, i) => sample.forEach((value, j) => {
+      assert.ok(Math.abs(value - expectedCuts[i][j]) < 1e-5, `bubble field case ${i}, sample ${j}`);
+    }));
     const samples = await page.evaluate(probeDistances, shader);
     for (const sample of samples) {
       for (let mode = 0; mode < 4; mode++) {
@@ -237,7 +255,8 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     await page.keyboard.press('+');
     await page.keyboard.press('ArrowLeft');
     await page.getByRole('button', { name: 'Fly', exact: true }).click();
-    for (let i = 0; i < 12; i++) await page.keyboard.press('w');
+    await page.getByRole('button', { name: 'Cutaway', exact: true }).click();
+    for (let i = 0; i < 50; i++) await page.keyboard.press('w');
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('a');
     await page.keyboard.press('e');

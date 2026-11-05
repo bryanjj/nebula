@@ -8,6 +8,9 @@ const statusEl = document.getElementById('status');
 const retryButton = document.getElementById('retryButton');
 const orbitButton = document.getElementById('orbitButton');
 const flyButton = document.getElementById('flyButton');
+const cutawayButton = document.getElementById('cutawayButton');
+const bubbleSlider = document.getElementById('bubbleSlider');
+const bubbleValue = document.getElementById('bubbleValue');
 const help = document.getElementById('help');
 const orbitHelp = help.textContent;
 const sliderDimNames = ['Im(c)', 'Re(z₀)', 'Im(z₀)', 'Re(c)'];
@@ -73,6 +76,8 @@ let zoom = 1;
 let panX = 0;
 let panY = 0;
 let flying = false;
+let cutaway = false;
+let bubbleRadius = 0.5;
 let flyPosition = [0, 0, 5];
 let orbitView = null;
 let drag = null;
@@ -202,10 +207,18 @@ function navigationDistance(p) {
   return distance;
 }
 
+function activeBubbleRadius() { return flying && cutaway ? bubbleRadius : 0; }
+
 function updateNavigationUI() {
   orbitButton.setAttribute('aria-pressed', String(!flying));
   flyButton.setAttribute('aria-pressed', String(flying));
   document.getElementById('flyReticle').hidden = !flying;
+  document.getElementById('flyControls').hidden = !flying;
+  cutawayButton.setAttribute('aria-pressed', String(cutaway));
+  cutawayButton.title = cutaway
+    ? 'Turn off the bubble; return outside if the camera is inside solid material'
+    : 'Carve a bubble around the camera and fly through solid material';
+  bubbleSlider.disabled = !cutaway;
   document.getElementById('resetButton').title = flying
     ? 'Return to the starting position outside the fractal'
     : 'Restore the starting camera orientation and zoom';
@@ -231,19 +244,33 @@ function setFlying(next) {
 }
 orbitButton.addEventListener('click', () => setFlying(false));
 flyButton.addEventListener('click', () => setFlying(true));
+cutawayButton.addEventListener('click', () => {
+  cutaway = !cutaway;
+  if (!cutaway && navigationDistance(flyPosition) <= 0) reset();
+  updateNavigationUI();
+  canvas.focus({ preventScroll: true });
+  invalidate();
+});
+bubbleSlider.addEventListener('input', () => {
+  bubbleRadius = Number(bubbleSlider.value);
+  bubbleValue.textContent = bubbleRadius.toFixed(2);
+  invalidate();
+});
 
 // Re-evaluate clearance in small steps to limit large wheel jumps.
 // A small speed floor lets you back out of a solid
-// region after changing the slice. This is gentle navigation, not collision detection.
+// region after changing the slice. Cutaway permits crossing solid material,
+// with the bubble radius setting a comfortable minimum movement scale.
 function moveFly(direction, amount) {
   if (!Number.isFinite(amount)) return;
   const bounded = Math.max(-4, Math.min(4, amount));
   const steps = Math.max(1, Math.ceil(Math.abs(bounded) / 0.1));
   for (let step = 0; step < steps; step++) {
-    const clearance = navigationDistance(flyPosition);
+    const bubble = activeBubbleRadius();
+    const clearance = Math.max(navigationDistance(flyPosition), bubble);
     const speed = Math.max(0.002, Math.min(1.5, clearance)) * 0.6;
     const next = flyPosition.map((v, i) => v + direction[i] * speed * bounded / steps);
-    if (clearance > 0 && navigationDistance(next) <= 0) break;
+    if (!bubble && clearance > 0 && navigationDistance(next) <= 0) break;
     flyPosition = next;
   }
 }
@@ -358,12 +385,13 @@ async function init() {
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
 
-  // Uniforms: 4 vec4<f32> = 16 floats
+  // Uniforms: 5 vec4<f32> = 20 floats
   // data1: resolution.x, resolution.y, sliderVal, orbit zoom or flight detail
   // data2: mode, rotationX, rotationY, clipDist
   // data3: panX, panY, clipRotationX, clipRotationY
   // data4: flyPosition.xyz, flying
-  const uniformBufferSize = 16 * 4;
+  // data5: active bubble radius, reserved.xyz
+  const uniformBufferSize = 20 * 4;
   const uniformBuffer = device.createBuffer({
     size: uniformBufferSize,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -375,6 +403,7 @@ struct Uniforms {
   data2 : vec4<f32>, // mode, rotationX, rotationY, clipDist
   data3 : vec4<f32>, // panX, panY, clipRotationX, clipRotationY
   data4 : vec4<f32>, // flyPosition.xyz, flying
+  data5 : vec4<f32>, // active bubble radius, reserved.xyz
 };
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 
@@ -583,11 +612,21 @@ fn getClipNormal() -> vec3<f32> {
   return -vec3<f32>(cos(pitch) * sin(yaw), sin(pitch), cos(pitch) * cos(yaw));
 }
 
-// Removed material must not cast shadows or occlude the exposed cut.
+fn getBubbleRadius() -> f32 {
+  return select(0.0, uniforms.data5.x, uniforms.data4.w > 0.5);
+}
+
+// Removed material must not cast shadows or occlude either exposed cut.
 fn clipped_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
-  let d = fractal_distance(p, mode, slider);
-  if (getClipDist() <= -2.999) { return d; }
-  return max(d, getClipDist() - dot(p, getClipNormal()));
+  var d = fractal_distance(p, mode, slider);
+  if (getClipDist() > -2.999) {
+    d = max(d, getClipDist() - dot(p, getClipNormal()));
+  }
+  let radius = getBubbleRadius();
+  if (radius > 0.0) {
+    d = max(d, radius - distance(p, uniforms.data4.xyz));
+  }
+  return d;
 }
 
 // Soft shadow via secondary raymarch
@@ -690,7 +729,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // March from the camera without a fixed world-space cropping box.
   // The step budget and far distance bound the work, not the visible volume.
   let panOffset = right * pan.x + up * pan.y;
-  var t: f32 = 0.0;
+  // Every ray starts at the camera-centered bubble boundary. The plane
+  // interval below can move the entry farther out or exclude it entirely.
+  let bubble = getBubbleRadius();
+  var t: f32 = bubble;
   var hit = false;
   var hitPos = vec3<f32>(0.0);
 
@@ -747,6 +789,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   var n = estimate_normal(hitPosScaled, mode, slider, detail);
   if (clipDist > -2.999 && abs(dot(hitPosScaled, clipNormal) - clipDist) < 0.00001) {
     n = -clipNormal;
+  }
+  if (bubble > 0.0 && abs(distance(hitPosScaled, uniforms.data4.xyz) - bubble) < 0.00001) {
+    // The exposed cavity wall faces inward toward the camera.
+    n = normalize(uniforms.data4.xyz - hitPosScaled);
   }
   if (dot(n, n) < 0.01) { n = -forward; }
 
@@ -815,12 +861,12 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     }],
   });
 
-  const data = new Float32Array(16);
+  const data = new Float32Array(20);
   renderFrame = () => {
     data[0] = canvas.width;
     data[1] = canvas.height;
     data[2] = sliderVal;
-    data[3] = flying ? Math.max(1, Math.min(100, 1 / Math.max(navigationDistance(flyPosition), 0.01))) : zoom;
+    data[3] = flying ? Math.max(1, Math.min(100, 1 / Math.max(navigationDistance(flyPosition), activeBubbleRadius(), 0.01))) : zoom;
     data[4] = mode;
     data[5] = rotationX;
     data[6] = rotationY;
@@ -831,6 +877,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     data[11] = clipRotationY;
     data.set(flyPosition, 12);
     data[15] = flying ? 1 : 0;
+    data[16] = activeBubbleRadius();
     device.queue.writeBuffer(uniformBuffer, 0, data.buffer, data.byteOffset, data.byteLength);
 
     const encoder = device.createCommandEncoder();
@@ -863,6 +910,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 // firing input events. Reset both the controls and renderer state together.
 function resetOnLoad() {
   flying = false;
+  cutaway = false;
+  bubbleRadius = 0.5;
+  bubbleSlider.value = '0.5';
+  bubbleValue.textContent = '0.50';
   flyPosition = [0, 0, 5];
   orbitView = null;
   drag = null;

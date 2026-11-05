@@ -20,7 +20,7 @@ async function viewer({ failPipeline = false, reducedMotion = false, restoredCon
     setPointerCapture() {}
     getBoundingClientRect() { return { width, height }; }
   }
-  const ids = ['orbitButton', 'flyButton', 'flyReticle', 'help', 'gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'retryButton', 'resetButton', 'alignClipButton', 'axisGuide', 'axisXLabel', 'axisYLabel', 'axisZLabel', 'axisXArrow', 'axisYArrow', 'axisZArrow'];
+  const ids = ['flyControls', 'cutawayButton', 'bubbleSlider', 'bubbleValue', 'orbitButton', 'flyButton', 'flyReticle', 'help', 'gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'retryButton', 'resetButton', 'alignClipButton', 'axisGuide', 'axisXLabel', 'axisYLabel', 'axisZLabel', 'axisXArrow', 'axisYArrow', 'axisZArrow'];
   const elements = Object.fromEntries(ids.map((id) => [id, new Element()]));
   elements.slider.min = '-1.5';
   elements.slider.max = '1.5';
@@ -434,4 +434,60 @@ test('flight slows near the cut, refines precision, backs out, and resets safely
   app.frame();
   assert.equal(app.uniforms[15], 0);
   assert.equal(app.elements.flyReticle.hidden, true);
+});
+
+
+test('Cutaway crosses solid material, changes size without moving, and is inactive in Orbit', async () => {
+  const app = await viewer();
+  assert.equal(app.elements.flyControls.hidden, true);
+  app.elements.flyButton.dispatchEvent(new Event('click'));
+  assert.equal(app.elements.flyControls.hidden, false);
+  assert.equal(app.elements.bubbleSlider.disabled, true);
+  app.elements.cutawayButton.dispatchEvent(new Event('click'));
+  app.frame();
+  assert.equal(app.elements.bubbleSlider.disabled, false);
+  assert.equal(app.uniforms[16], 0.5);
+  // Enter the retained solid side of the default Mandelbrot cut.
+  for (let i = 0; i < 100 && app.uniforms[14] > -0.3; i++) {
+    app.key('w');
+    app.frame();
+  }
+  const position = app.uniforms.slice(12, 15);
+  assert.ok(position[2] < -0.2 && position[2] > -0.9);
+  assert.equal(app.distance(position), 0);
+  app.input('bubbleSlider', '0.1');
+  app.frame();
+  assert.deepEqual(app.uniforms.slice(12, 15), position);
+  assert.ok(Math.abs(app.uniforms[16] - 0.1) < 1e-7);
+  assert.equal(app.elements.bubbleValue.textContent, '0.10');
+  app.key('w');
+  app.frame();
+  const smallStep = position[2] - app.uniforms[14];
+  app.input('bubbleSlider', '0.5');
+  app.frame();
+  const before = app.uniforms[14];
+  app.key('w');
+  app.frame();
+  assert.ok(Math.abs((before - app.uniforms[14]) / smallStep - 5) < 0.001);
+  app.elements.cutawayButton.dispatchEvent(new Event('click'));
+  app.frame();
+  assert.equal(app.uniforms[16], 0);
+  assert.deepEqual(app.uniforms.slice(12, 15), [0, 0, 5], 'disabling inside solid returns outside');
+  app.elements.cutawayButton.dispatchEvent(new Event('click'));
+  app.input('bubbleSlider', '0.25');
+  app.key('r');
+  app.frame();
+  assert.equal(app.uniforms[16], 0.25, 'Reset view preserves Cutaway settings');
+  app.elements.orbitButton.dispatchEvent(new Event('click'));
+  app.frame();
+  assert.equal(app.uniforms[16], 0);
+  assert.equal(app.elements.flyControls.hidden, true);
+  app.elements.flyButton.dispatchEvent(new Event('click'));
+  app.frame();
+  assert.equal(app.uniforms[16], 0.25, 'returning to Fly restores the bubble setting');
+  app.window.dispatchEvent(new Event('pageshow'));
+  app.frame();
+  assert.equal(app.uniforms[16], 0);
+  assert.equal(app.elements.cutawayButton.attributes['aria-pressed'], 'false');
+  assert.equal(app.elements.bubbleSlider.value, '0.5');
 });
