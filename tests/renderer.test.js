@@ -446,7 +446,8 @@ test('Cutaway crosses solid material, changes size without moving, and is inacti
   app.elements.cutawayButton.dispatchEvent(new Event('click'));
   app.frame();
   assert.equal(app.elements.bubbleSlider.disabled, false);
-  assert.equal(app.uniforms[16], 0.5);
+  assert.ok(Math.abs(app.uniforms[16] - 0.001) < 1e-9);
+  app.input('bubbleSlider', '300');
   // Enter the retained solid side of the default Mandelbrot cut.
   for (let i = 0; i < 100 && app.uniforms[14] > -0.3; i++) {
     app.key('w');
@@ -455,39 +456,68 @@ test('Cutaway crosses solid material, changes size without moving, and is inacti
   const position = app.uniforms.slice(12, 15);
   assert.ok(position[2] < -0.2 && position[2] > -0.9);
   assert.equal(app.distance(position), 0);
-  app.input('bubbleSlider', '0.1');
+  app.input('bubbleSlider', '200');
   app.frame();
   assert.deepEqual(app.uniforms.slice(12, 15), position);
   assert.ok(Math.abs(app.uniforms[16] - 0.1) < 1e-7);
-  assert.equal(app.elements.bubbleValue.textContent, '0.10');
+  assert.equal(app.elements.bubbleValue.textContent, '0.1');
   app.key('w');
   app.frame();
   const smallStep = position[2] - app.uniforms[14];
-  app.input('bubbleSlider', '0.5');
+  app.input('bubbleSlider', '300');
   app.frame();
   const before = app.uniforms[14];
   app.key('w');
   app.frame();
-  assert.ok(Math.abs((before - app.uniforms[14]) / smallStep - 5) < 0.001);
+  assert.ok(Math.abs((before - app.uniforms[14]) / smallStep - 10) < 0.001);
   app.elements.cutawayButton.dispatchEvent(new Event('click'));
   app.frame();
   assert.equal(app.uniforms[16], 0);
   assert.deepEqual(app.uniforms.slice(12, 15), [0, 0, 5], 'disabling inside solid returns outside');
   app.elements.cutawayButton.dispatchEvent(new Event('click'));
-  app.input('bubbleSlider', '0.25');
+  app.input('bubbleSlider', '100');
   app.key('r');
   app.frame();
-  assert.equal(app.uniforms[16], 0.25, 'Reset view preserves Cutaway settings');
+  assert.ok(Math.abs(app.uniforms[16] - 0.01) < 1e-9, 'Reset view preserves Cutaway settings');
   app.elements.orbitButton.dispatchEvent(new Event('click'));
   app.frame();
   assert.equal(app.uniforms[16], 0);
   assert.equal(app.elements.flyControls.hidden, true);
   app.elements.flyButton.dispatchEvent(new Event('click'));
   app.frame();
-  assert.equal(app.uniforms[16], 0.25, 'returning to Fly restores the bubble setting');
+  assert.ok(Math.abs(app.uniforms[16] - 0.01) < 1e-9, 'returning to Fly restores the bubble setting');
   app.window.dispatchEvent(new Event('pageshow'));
   app.frame();
   assert.equal(app.uniforms[16], 0);
   assert.equal(app.elements.cutawayButton.attributes['aria-pressed'], 'false');
-  assert.equal(app.elements.bubbleSlider.value, '0.5');
+  assert.equal(app.elements.bubbleSlider.value, '0');
+});
+
+
+test('logarithmic bubble sizes retain tiny values, with matching speed and detail', async () => {
+  const app = await viewer();
+  app.elements.flyButton.dispatchEvent(new Event('click'));
+  app.elements.cutawayButton.dispatchEvent(new Event('click'));
+  for (const [position, radius] of [[0, 0.001], [1, 0.00102], [100, 0.01], [200, 0.1], [300, 1], [330, 2]]) {
+    app.input('bubbleSlider', String(position));
+    app.frame();
+    assert.ok(Math.abs(app.uniforms[16] - radius) < 1e-7);
+    assert.equal(app.elements.bubbleValue.textContent, String(radius));
+    assert.equal(app.elements.bubbleSlider.attributes['aria-valuetext'], String(radius));
+  }
+  app.input('bubbleSlider', '300');
+  app.frame();
+  for (let i = 0; i < 100 && app.uniforms[14] > -0.3; i++) {
+    app.key('w');
+    app.frame();
+  }
+  const before = app.uniforms.slice(12, 15);
+  assert.equal(app.distance(before), 0);
+  app.input('bubbleSlider', '0');
+  app.frame();
+  assert.deepEqual(app.uniforms.slice(12, 15), before, 'resizing does not move the camera');
+  assert.equal(app.uniforms[3], 1000, 'precision increases for a 0.001 cavity');
+  app.key('w');
+  app.frame();
+  assert.ok(Math.abs((before[2] - app.uniforms[14]) - 0.00012) < 1e-7, 'movement scales to the tiny radius');
 });

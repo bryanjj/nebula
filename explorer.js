@@ -77,7 +77,7 @@ let panX = 0;
 let panY = 0;
 let flying = false;
 let cutaway = false;
-let bubbleRadius = 0.5;
+let bubbleRadius = 0.001;
 let flyPosition = [0, 0, 5];
 let orbitView = null;
 let drag = null;
@@ -208,6 +208,10 @@ function navigationDistance(p) {
 }
 
 function activeBubbleRadius() { return flying && cutaway ? bubbleRadius : 0; }
+function flightDetail() {
+  const minDistance = cutaway ? 0.001 : 0.01;
+  return Math.max(1, 1 / Math.max(navigationDistance(flyPosition), activeBubbleRadius(), minDistance));
+}
 
 function updateNavigationUI() {
   orbitButton.setAttribute('aria-pressed', String(!flying));
@@ -251,9 +255,15 @@ cutawayButton.addEventListener('click', () => {
   canvas.focus({ preventScroll: true });
   invalidate();
 });
+function updateBubbleSize() {
+  // Equal slider travel changes radius by equal ratios, from 0.001 to 2.
+  bubbleRadius = Number((10 ** (Number(bubbleSlider.value) / 100 - 3)).toPrecision(3));
+  const label = String(bubbleRadius);
+  bubbleValue.textContent = label;
+  bubbleSlider.setAttribute('aria-valuetext', label);
+}
 bubbleSlider.addEventListener('input', () => {
-  bubbleRadius = Number(bubbleSlider.value);
-  bubbleValue.textContent = bubbleRadius.toFixed(2);
+  updateBubbleSize();
   invalidate();
 });
 
@@ -268,7 +278,7 @@ function moveFly(direction, amount) {
   for (let step = 0; step < steps; step++) {
     const bubble = activeBubbleRadius();
     const clearance = Math.max(navigationDistance(flyPosition), bubble);
-    const speed = Math.max(0.002, Math.min(1.5, clearance)) * 0.6;
+    const speed = Math.max(bubble ? 0 : 0.002, Math.min(1.5, clearance)) * 0.6;
     const next = flyPosition.map((v, i) => v + direction[i] * speed * bounded / steps);
     if (!bubble && clearance > 0 && navigationDistance(next) <= 0) break;
     flyPosition = next;
@@ -790,7 +800,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   if (clipDist > -2.999 && abs(dot(hitPosScaled, clipNormal) - clipDist) < 0.00001) {
     n = -clipNormal;
   }
-  if (bubble > 0.0 && abs(distance(hitPosScaled, uniforms.data4.xyz) - bubble) < 0.00001) {
+  if (bubble > 0.0 && abs(distance(hitPosScaled, uniforms.data4.xyz) - bubble) < max(0.000001, bubble * 0.00001)) {
     // The exposed cavity wall faces inward toward the camera.
     n = normalize(uniforms.data4.xyz - hitPosScaled);
   }
@@ -866,7 +876,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     data[0] = canvas.width;
     data[1] = canvas.height;
     data[2] = sliderVal;
-    data[3] = flying ? Math.max(1, Math.min(100, 1 / Math.max(navigationDistance(flyPosition), activeBubbleRadius(), 0.01))) : zoom;
+    data[3] = flying ? flightDetail() : zoom;
     data[4] = mode;
     data[5] = rotationX;
     data[6] = rotationY;
@@ -911,9 +921,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 function resetOnLoad() {
   flying = false;
   cutaway = false;
-  bubbleRadius = 0.5;
-  bubbleSlider.value = '0.5';
-  bubbleValue.textContent = '0.50';
+  bubbleSlider.value = '0';
+  updateBubbleSize();
   flyPosition = [0, 0, 5];
   orbitView = null;
   drag = null;

@@ -50,3 +50,5 @@ footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; pad
 .fly-controls { display: flex; flex: 1 1 270px; align-items: end; gap: 12px; min-width: 0; }
 #cutawayButton[aria-pressed="true"] { background: #a9b5ff; color: #111722; }
 #bubbleSlider:disabled { opacity: .4; }
+
+#bubbleValue { flex-basis: 7ch; }

@@ -123,7 +123,12 @@ test('Fly controls fit on mobile and return to Orbit on refresh', async () => {
     await page.getByRole('button', { name: 'Cutaway', exact: true }).click();
     assert.equal(await page.locator('#bubbleSlider').isEnabled(), true);
     await page.locator('#bubbleSlider').press('Home');
-    assert.equal(await page.locator('#bubbleValue').innerText(), '0.05');
+    assert.equal(await page.locator('#bubbleValue').innerText(), '0.001');
+    await page.locator('#bubbleSlider').press('ArrowRight');
+    assert.equal(await page.locator('#bubbleValue').innerText(), '0.00102');
+    assert.equal(await page.locator('#bubbleSlider').getAttribute('aria-valuetext'), '0.00102');
+    await page.locator('#bubbleSlider').press('End');
+    assert.equal(await page.locator('#bubbleValue').innerText(), '2');
     await page.locator('#gfx').focus();
     assert.match(await page.locator('#help').innerText(), /Scroll or W\/S/);
     assert.equal(await page.evaluate(() => document.activeElement.id), 'gfx');
@@ -139,7 +144,7 @@ test('Fly controls fit on mobile and return to Orbit on refresh', async () => {
     await page.reload();
     assert.equal(await page.locator('#orbitButton').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('#cutawayButton').getAttribute('aria-pressed'), 'false');
-    assert.equal(await page.locator('#bubbleSlider').inputValue(), '0.5');
+    assert.equal(await page.locator('#bubbleSlider').inputValue(), '0');
     assert.equal(await page.locator('#flyReticle').isVisible(), false);
   } finally { await page.close(); }
 });
@@ -224,7 +229,7 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     const expectedCuts = [
       [0.5, 0.25, 0, 0, 0.25, 0.5], [0.25, 0, 0, 0, 0, 0.25],
       [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0],
-      [0.5, 0.25, 0, 0, 0.35, 0.5],
+      [0.5, 0.25, 0, 0, 0.35, 0.5], [0.001, 0, 0, 0, 0, 0.001],
     ];
     cutSamples.forEach((sample, i) => sample.forEach((value, j) => {
       assert.ok(Math.abs(value - expectedCuts[i][j]) < 1e-5, `bubble field case ${i}, sample ${j}`);

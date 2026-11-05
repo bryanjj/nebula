@@ -102,7 +102,7 @@ export async function probeCutaway(shader) {
     for (const [flying, radius, clip, center] of [
       [1, 0.5, -3, [0, 0, 0]], [1, 0.25, -3, [0, 0, 0]],
       [0, 0.5, -3, [0, 0, 0]], [1, 0, -3, [0, 0, 0]],
-      [1, 0.5, 0, [0.1, 0, 0.1]],
+      [1, 0.5, 0, [0.1, 0, 0.1]], [1, 0.001, -3, [0, 0, 0]],
     ]) {
       const data = new Float32Array(20);
       data[7] = clip;
