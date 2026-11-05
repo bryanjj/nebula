@@ -145,7 +145,7 @@ export async function probeAdaptiveDetail(shader) {
     const module = device.createShaderModule({ code: shader + `
       @group(0) @binding(1) var<storage, read_write> results: array<f32>;
       @compute @workgroup_size(1) fn probe() {
-        let epsilon = fly_epsilon(uniforms.data5.y);
+        let epsilon = fly_epsilon(uniforms.data5.z);
         let budget = fly_iterations(epsilon);
         results[0] = epsilon;
         results[1] = f32(budget);
@@ -174,7 +174,7 @@ export async function probeAdaptiveDetail(shader) {
       data[7] = -3;
       data[15] = 1;
       data[16] = radius;
-      data[17] = rayDistance;
+      data[18] = rayDistance;
       device.queue.writeBuffer(uniform, 0, data);
       const encoder = device.createCommandEncoder();
       const pass = encoder.beginComputePass();

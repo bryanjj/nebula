@@ -84,6 +84,10 @@ let drag = null;
 let renderFrame = null;
 let pendingFrame = 0;
 let stopped = false;
+let gpuBusy = false;
+let needsRender = false;
+let refineRequested = false;
+let refineTimer = 0;
 let resizeCanvas = () => {};
 
 // Render while aligning the plane, then return to rendering only on interaction.
@@ -97,22 +101,47 @@ function animateClip(now) {
   if (progress === 1) clipAnimation = null;
 }
 
-function invalidate() {
-  updateAxisOrientation();
-  if (!renderFrame || pendingFrame || stopped || document.hidden) return;
+// Never queue camera poses behind unfinished GPU work. While a frame is in
+// flight, inputs update the state and the next frame uses only the latest pose.
+function scheduleFrame() {
+  if (!renderFrame || pendingFrame || gpuBusy || !needsRender || stopped || document.hidden) return;
   pendingFrame = requestAnimationFrame((now) => {
     pendingFrame = 0;
     if (stopped || document.hidden) return;
+    needsRender = false;
+    gpuBusy = true;
     try {
       animateClip(now);
-      renderFrame();
-      if (clipAnimation) invalidate();
+      renderFrame(flying && !refineRequested).then(() => {
+        gpuBusy = false;
+        if (stopped) return;
+        if (clipAnimation) invalidate();
+        else scheduleFrame();
+      }, fail);
     } catch (error) { fail(error); }
   });
 }
 
+function invalidate() {
+  updateAxisOrientation();
+  needsRender = true;
+  refineRequested = false;
+  clearTimeout(refineTimer);
+  // Refine only after input has settled. New input cancels pending refinement.
+  if (flying && !stopped && !document.hidden) {
+    refineTimer = setTimeout(() => {
+      refineTimer = 0;
+      refineRequested = true;
+      needsRender = true;
+      scheduleFrame();
+    }, 240);
+  }
+  scheduleFrame();
+}
+
 function fail(error) {
   stopped = true;
+  clearTimeout(refineTimer);
   clipAnimation = null;
   cancelAnimationFrame(pendingFrame);
   pendingFrame = 0;
@@ -376,17 +405,23 @@ async function init() {
   const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({ device, format, alphaMode: 'opaque' });
 
-  resizeCanvas = () => {
+  let previewPixels = 200_000;
+  let detailHeight = 1;
+  function sizeCanvas(preview = false) {
     const rect = canvas.getBoundingClientRect();
-    // Use the High render scale, capped for Retina displays and total raymarching work.
+    // Keep High for the resting image; moving Fly views use a smaller image.
     let scale = Math.min(window.devicePixelRatio || 1, 2) * 2;
     scale = Math.min(scale, Math.sqrt(2_000_000 / Math.max(1, rect.width * rect.height)));
     const limit = device.limits.maxTextureDimension2D;
     scale = Math.min(scale, limit / Math.max(1, rect.width), limit / Math.max(1, rect.height));
-    canvas.width = Math.max(1, Math.floor(rect.width * scale));
-    canvas.height = Math.max(1, Math.floor(rect.height * scale));
-    invalidate();
-  };
+    detailHeight = Math.max(1, Math.floor(rect.height * scale));
+    if (preview) scale = Math.min(scale, Math.sqrt(previewPixels / Math.max(1, rect.width * rect.height)));
+    const width = Math.max(1, Math.floor(rect.width * scale));
+    const height = Math.max(1, Math.floor(rect.height * scale));
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+  }
+  resizeCanvas = () => { sizeCanvas(); invalidate(); };
   const observer = new ResizeObserver(resizeCanvas);
   observer.observe(canvas);
   window.addEventListener('resize', resizeCanvas);
@@ -397,7 +432,7 @@ async function init() {
   // data2: mode, rotationX, rotationY, clipDist
   // data3: panX, panY, clipRotationX, clipRotationY
   // data4: flyPosition.xyz, flying
-  // data5: active bubble radius, reserved.xyz
+  // data5: active bubble radius, full-detail height, reserved.xy
   const uniformBufferSize = 20 * 4;
   const uniformBuffer = device.createBuffer({
     size: uniformBufferSize,
@@ -410,7 +445,7 @@ struct Uniforms {
   data2 : vec4<f32>, // mode, rotationX, rotationY, clipDist
   data3 : vec4<f32>, // panX, panY, clipRotationX, clipRotationY
   data4 : vec4<f32>, // flyPosition.xyz, flying
-  data5 : vec4<f32>, // active bubble radius, reserved.xyz
+  data5 : vec4<f32>, // active bubble radius, full-detail height, reserved.xy
 };
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 
@@ -576,9 +611,10 @@ fn fractal_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
 }
 
 // Approximate a third of a pixel at this ray distance (45-degree vertical FOV).
-// The floor avoids chasing detail below useful f32 coordinate precision.
+// Keep the resting-image footprint during previews so geometry does not pop
+// as the pixel count changes. The floor bounds useful f32 precision.
 fn fly_epsilon(rayDistance: f32) -> f32 {
-  let pixelWidth = 0.82842712 * max(rayDistance, 0.0) / max(getResolution().y, 1.0);
+  let pixelWidth = 0.82842712 * max(rayDistance, 0.0) / max(max(getResolution().y, uniforms.data5.y), 1.0);
   return clamp(pixelWidth * 0.35, 0.0000002, 0.001);
 }
 
@@ -913,7 +949,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   });
 
   const data = new Float32Array(20);
-  renderFrame = () => {
+  renderFrame = (preview) => {
+    sizeCanvas(preview);
+    const started = performance.now();
     data[0] = canvas.width;
     data[1] = canvas.height;
     data[2] = sliderVal;
@@ -929,6 +967,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     data.set(flyPosition, 12);
     data[15] = flying ? 1 : 0;
     data[16] = activeBubbleRadius();
+    data[17] = detailHeight;
     device.queue.writeBuffer(uniformBuffer, 0, data.buffer, data.byteOffset, data.byteLength);
 
     const encoder = device.createCommandEncoder();
@@ -949,6 +988,15 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     pass.end();
 
     device.queue.submit([encoder.finish()]);
+    return device.queue.onSubmittedWorkDone().then(() => {
+      if (preview) {
+        // Adapt only the moving preview. Bound each adjustment and retain the
+        // same fractal/ray budgets so movement doesn't switch field definitions.
+        const elapsed = Math.max(1, performance.now() - started);
+        previewPixels = Math.max(40_000, Math.min(300_000,
+          previewPixels * Math.max(0.5, Math.min(1.25, 50 / elapsed))));
+      }
+    });
   };
 
   if (stopped) return;

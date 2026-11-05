@@ -122,6 +122,10 @@ test('Fly controls fit on mobile and return to Orbit on refresh', async () => {
     assert.equal(await page.locator('#bubbleSlider').isEnabled(), false);
     await page.getByRole('button', { name: 'Cutaway', exact: true }).click();
     assert.equal(await page.locator('#bubbleSlider').isEnabled(), true);
+    const canvasBox = await page.locator('#gfx').boundingBox();
+    const reticleBox = await page.locator('#flyReticle').boundingBox();
+    assert.ok(Math.abs(reticleBox.x + reticleBox.width / 2 - canvasBox.x - canvasBox.width / 2) < 0.5);
+    assert.ok(Math.abs(reticleBox.y + reticleBox.height / 2 - canvasBox.y - canvasBox.height / 2) < 0.5);
     await page.locator('#bubbleSlider').press('Home');
     assert.equal(await page.locator('#bubbleValue').innerText(), '0.001');
     await page.locator('#bubbleSlider').press('ArrowRight');
