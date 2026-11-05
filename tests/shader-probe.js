@@ -32,7 +32,7 @@ export function referenceDistance(mode) {
 export async function probeDistances(shader) {
   const adapter = await navigator.gpu.requestAdapter();
   const device = await adapter.requestDevice();
-  const uniform = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const uniform = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const output = device.createBuffer({ size: 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   const readback = device.createBuffer({ size: 32, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   try {
@@ -50,7 +50,7 @@ export async function probeDistances(shader) {
     ] });
     const samples = [];
     for (const [pitch, yaw] of [[0.3, 0], [-0.6, 1.6], [1.2, 3.1]]) {
-      const data = new Float32Array(12);
+      const data = new Float32Array(16);
       data[7] = -3;
       data[10] = pitch;
       data[11] = yaw;

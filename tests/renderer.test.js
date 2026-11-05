@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { referenceDistance } from './shader-probe.js';
 
 // Exercise scheduling and GPU failure recovery without depending on a driver.
 async function viewer({ failPipeline = false, reducedMotion = false, restoredControls = false, width = 360, height = 400 } = {}) {
@@ -19,7 +20,7 @@ async function viewer({ failPipeline = false, reducedMotion = false, restoredCon
     setPointerCapture() {}
     getBoundingClientRect() { return { width, height }; }
   }
-  const ids = ['gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'retryButton', 'resetButton', 'alignClipButton', 'axisGuide', 'axisXLabel', 'axisYLabel', 'axisZLabel', 'axisXArrow', 'axisYArrow', 'axisZArrow'];
+  const ids = ['orbitButton', 'flyButton', 'flyReticle', 'help', 'gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'retryButton', 'resetButton', 'alignClipButton', 'axisGuide', 'axisXLabel', 'axisYLabel', 'axisZLabel', 'axisXArrow', 'axisYArrow', 'axisZArrow'];
   const elements = Object.fromEntries(ids.map((id) => [id, new Element()]));
   elements.slider.min = '-1.5';
   elements.slider.max = '1.5';
@@ -73,8 +74,9 @@ async function viewer({ failPipeline = false, reducedMotion = false, restoredCon
   await new Promise((resolve) => setImmediate(resolve));
   return {
     elements, document, window, lose,
+    distance(point) { return vm.runInContext(`navigationDistance(${JSON.stringify(point)})`, context); },
     get uniforms() { return uniforms; },
-    key(key) { const event = new Event('keydown'); Object.assign(event, { key }); elements.gfx.dispatchEvent(event); },
+    key(key, modifiers = {}) { const event = new Event('keydown'); Object.assign(event, { key, ...modifiers }); elements.gfx.dispatchEvent(event); },
     get pending() { return frames.size; },
     get submitted() { return submitted; },
     frame(elapsed = 0) { now += elapsed; const batch = [...frames.values()]; frames.clear(); batch.forEach((callback) => callback(now)); },
@@ -327,4 +329,109 @@ test('page load discards restored controls and keeps the first slider input in s
   assert.equal(app.uniforms[2], 0);
   assert.equal(app.uniforms[6], 0);
   assert.equal(app.uniforms[7], 0);
+});
+
+
+test('navigation distance matches independent orbit derivatives and honors clipping', async () => {
+  const app = await viewer();
+  app.input('slider', '0.35');
+  app.input('clipSlider', '-3');
+  for (let mode = 0; mode < 4; mode++) {
+    app.elements.modeSelect.value = String(mode);
+    app.elements.modeSelect.dispatchEvent(new Event('change'));
+    assert.ok(Math.abs(app.distance([1.7, 0.2, -0.6]) - referenceDistance(mode)) < 1e-6);
+  }
+  app.input('clipSlider', '0');
+  assert.equal(app.distance([0, 0, 5]), 5, 'removed half-space is empty for navigation');
+});
+
+test('Fly enters from the orbit pose, turns in place, strafes, and restores the overview', async () => {
+  const app = await viewer();
+  app.key('ArrowRight');
+  app.key('ArrowUp');
+  app.key('+');
+  for (const [type, props] of [
+    ['pointerdown', { button: 2, pointerId: 1, clientX: 0, clientY: 0 }],
+    ['pointermove', { pointerId: 1, clientX: 60, clientY: 40 }],
+    ['pointerup', { pointerId: 1 }],
+  ]) {
+    const event = new Event(type);
+    Object.assign(event, props);
+    app.elements.gfx.dispatchEvent(event);
+  }
+  app.frame();
+  const orbit = [...app.uniforms];
+  const [pitch, yaw] = orbit.slice(5, 7);
+  const radius = 5 / orbit[3];
+  const expected = [
+    radius * Math.cos(pitch) * Math.sin(yaw) + Math.cos(yaw) * orbit[8] - Math.sin(pitch) * Math.sin(yaw) * orbit[9],
+    radius * Math.sin(pitch) + Math.cos(pitch) * orbit[9],
+    radius * Math.cos(pitch) * Math.cos(yaw) - Math.sin(yaw) * orbit[8] - Math.sin(pitch) * Math.cos(yaw) * orbit[9],
+  ];
+  app.elements.flyButton.dispatchEvent(new Event('click'));
+  app.frame();
+  assert.equal(app.uniforms[15], 1);
+  expected.forEach((v, i) => assert.ok(Math.abs(app.uniforms[12 + i] - v) < 1e-6));
+  assert.equal(app.elements.flyButton.attributes['aria-pressed'], 'true');
+  assert.equal(app.elements.flyReticle.hidden, false);
+  const position = app.uniforms.slice(12, 15);
+  for (const modifier of ['ctrlKey', 'metaKey', 'altKey']) app.key('w', { [modifier]: true });
+  app.frame();
+  assert.deepEqual(app.uniforms.slice(12, 15), position, 'browser shortcuts do not move the camera');
+  app.key('ArrowRight');
+  app.frame();
+  assert.deepEqual(app.uniforms.slice(12, 15), position, 'looking does not orbit the camera');
+  assert.ok(app.uniforms[6] < yaw, 'right arrow looks right in Fly');
+  app.key('a');
+  app.frame();
+  assert.ok(app.uniforms[12] < position[0], 'A strafes left');
+  app.elements.orbitButton.dispatchEvent(new Event('click'));
+  app.frame();
+  assert.deepEqual(app.uniforms.slice(0, 12), orbit.slice(0, 12));
+  assert.equal(app.uniforms[15], 0);
+  assert.equal(app.elements.flyReticle.hidden, true);
+  assert.equal(app.pending, 0);
+});
+
+test('flight slows near the cut, refines precision, backs out, and resets safely', async () => {
+  const app = await viewer();
+  app.elements.flyButton.dispatchEvent(new Event('click'));
+  app.frame();
+  const start = app.uniforms[14];
+  app.key('w');
+  app.frame();
+  const firstStep = start - app.uniforms[14];
+  const wheel = new Event('wheel');
+  Object.assign(wheel, { deltaY: -100000, deltaMode: 0 });
+  app.elements.gfx.dispatchEvent(wheel);
+  app.frame();
+  assert.ok(app.uniforms[14] > 0, 'large wheel events do not jump through the cut');
+  for (let i = 0; i < 30; i++) app.key('w');
+  app.frame();
+  const near = app.uniforms[14];
+  app.key('w');
+  app.frame();
+  assert.ok(near - app.uniforms[14] < firstStep / 10);
+  assert.ok(app.uniforms[3] > 10, 'detail increases near the surface');
+  const closer = app.uniforms[14];
+  app.key('s');
+  app.frame();
+  assert.ok(app.uniforms[14] > closer, 'backward movement remains available');
+  app.input('slider', '0.2');
+  app.input('clipSlider', '0.3');
+  for (const reset of [() => app.key('r'), () => app.elements.resetButton.dispatchEvent(new Event('click'))]) {
+    app.key('w');
+    app.key('ArrowRight');
+    reset();
+    app.frame();
+    assert.deepEqual(app.uniforms.slice(12, 15), [0, 0, 5]);
+    assert.deepEqual(app.uniforms.slice(5, 7), [0, 0]);
+    assert.equal(app.uniforms[15], 1);
+    assert.equal(app.elements.slider.value, '0.2');
+    assert.equal(app.elements.clipSlider.value, '0.3');
+  }
+  app.window.dispatchEvent(new Event('pageshow'));
+  app.frame();
+  assert.equal(app.uniforms[15], 0);
+  assert.equal(app.elements.flyReticle.hidden, true);
 });

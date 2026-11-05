@@ -40,3 +40,9 @@ footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; pad
 #axisGuide text.axis-x { fill: #ffa09b; }
 #axisGuide text.axis-y { fill: #a7dfb0; }
 #axisGuide text.axis-z { fill: #99c4ff; }
+
+.view-controls { display: flex; align-items: center; gap: 12px; }
+.camera-mode { display: flex; gap: 2px; padding: 2px; border: 1px solid #394b65; border-radius: 7px; }
+.camera-mode button { border-color: transparent; background: transparent; }
+.camera-mode button[aria-pressed="true"] { background: #a9b5ff; color: #111722; }
+#flyReticle { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; transform: translate(-50%, -50%); border: 1px solid #ffffffb3; border-radius: 50%; box-shadow: 0 0 3px #000; pointer-events: none; }

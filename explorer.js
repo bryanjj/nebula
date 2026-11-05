@@ -6,6 +6,10 @@ const clipValue = document.getElementById('clipValue');
 const modeSelect = document.getElementById('modeSelect');
 const statusEl = document.getElementById('status');
 const retryButton = document.getElementById('retryButton');
+const orbitButton = document.getElementById('orbitButton');
+const flyButton = document.getElementById('flyButton');
+const help = document.getElementById('help');
+const orbitHelp = help.textContent;
 const sliderDimNames = ['Im(c)', 'Re(z₀)', 'Im(z₀)', 'Re(c)'];
 // X/Y/Z order matches map_to_fractal in the shader. Labels follow the selected slice; orientation follows the camera.
 const visibleAxes = [
@@ -68,6 +72,9 @@ const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 let zoom = 1;
 let panX = 0;
 let panY = 0;
+let flying = false;
+let flyPosition = [0, 0, 5];
+let orbitView = null;
 let drag = null;
 let renderFrame = null;
 let pendingFrame = 0;
@@ -162,10 +169,91 @@ document.getElementById('alignClipButton').addEventListener('click', () => {
   invalidate();
 });
 
+function cameraBasis(pitch = rotationX, yaw = rotationY) {
+  const sp = Math.sin(pitch), cp = Math.cos(pitch), sy = Math.sin(yaw), cy = Math.cos(yaw);
+  return { forward: [-cp * sy, -sp, -cp * cy], right: [cy, 0, -sy], up: [-sp * sy, cp, -sp * cy] };
+}
+
+// CPU counterpart of the shader's pseudo-distance, used only for navigation.
+// Keep the same mapping, derivative weights, iteration limit, and clipping.
+function navigationDistance(p) {
+  const [x, y, z] = p;
+  let [a, b, c, d] = [
+    [x, y, z, sliderVal], [sliderVal, z, x, y],
+    [x, sliderVal, y, z], [x, y, sliderVal, z],
+  ][mode];
+  let za = 1, zb = 0, ca = 0, cb = 0, distance = 0;
+  for (let i = 0; i < 80; i++) {
+    [za, zb] = [2 * (a * za - b * zb), 2 * (a * zb + b * za)];
+    [ca, cb] = [2 * (a * ca - b * cb) + 1, 2 * (a * cb + b * ca)];
+    [a, b] = [a * a - b * b + c, 2 * a * b + d];
+    const r = Math.hypot(a, b);
+    if (r > 8) {
+      const zWeight = mode === 0 || mode === 3 ? 2 : 1;
+      const derivative = Math.max(Math.sqrt(zWeight * (za * za + zb * zb) + (3 - zWeight) * (ca * ca + cb * cb)), 1e-6);
+      distance = Math.min(1, Math.max(0, 0.5 * Math.log(r) * r / derivative));
+      break;
+    }
+  }
+  if (clipVal > -2.999) {
+    const normal = cameraBasis(clipRotationX, clipRotationY).forward;
+    distance = Math.max(distance, clipVal - p.reduce((dot, v, i) => dot + v * normal[i], 0));
+  }
+  return distance;
+}
+
+function updateNavigationUI() {
+  orbitButton.setAttribute('aria-pressed', String(!flying));
+  flyButton.setAttribute('aria-pressed', String(flying));
+  document.getElementById('flyReticle').hidden = !flying;
+  document.getElementById('resetButton').title = flying
+    ? 'Return to the starting position outside the fractal'
+    : 'Restore the starting camera orientation and zoom';
+  help.textContent = flying
+    ? 'Drag to look · Scroll or W/S to fly forward/back · A/D or Shift-drag to move sideways · Q/E down/up · R to return outside · Orbit restores your overview'
+    : orbitHelp;
+}
+function setFlying(next) {
+  if (flying === next) return;
+  drag = null;
+  canvas.style.cursor = 'grab';
+  if (next) {
+    orbitView = { rotationX, rotationY, zoom, panX, panY };
+    const { forward, right, up } = cameraBasis();
+    flyPosition = forward.map((v, i) => -v * 5 / zoom + right[i] * panX + up[i] * panY);
+  } else {
+    ({ rotationX, rotationY, zoom, panX, panY } = orbitView);
+  }
+  flying = next;
+  updateNavigationUI();
+  canvas.focus({ preventScroll: true });
+  invalidate();
+}
+orbitButton.addEventListener('click', () => setFlying(false));
+flyButton.addEventListener('click', () => setFlying(true));
+
+// Re-evaluate clearance in small steps to limit large wheel jumps.
+// A small speed floor lets you back out of a solid
+// region after changing the slice. This is gentle navigation, not collision detection.
+function moveFly(direction, amount) {
+  if (!Number.isFinite(amount)) return;
+  const bounded = Math.max(-4, Math.min(4, amount));
+  const steps = Math.max(1, Math.ceil(Math.abs(bounded) / 0.1));
+  for (let step = 0; step < steps; step++) {
+    const clearance = navigationDistance(flyPosition);
+    const speed = Math.max(0.002, Math.min(1.5, clearance)) * 0.6;
+    const next = flyPosition.map((v, i) => v + direction[i] * speed * bounded / steps);
+    if (clearance > 0 && navigationDistance(next) <= 0) break;
+    flyPosition = next;
+  }
+}
+function travel(amount) { moveFly(cameraBasis().forward, amount); }
+
 function reset() {
   rotationX = 0;
   rotationY = 0;
   zoom = 1;
+  if (flying) flyPosition = [0, 0, 5];
   invalidate();
 }
 document.getElementById('resetButton').addEventListener('click', reset);
@@ -185,8 +273,14 @@ canvas.addEventListener('pointermove', (e) => {
   drag.x = e.clientX;
   drag.y = e.clientY;
   if (drag.pan) {
-    panX -= dx * 0.003 / zoom;
-    panY += dy * 0.003 / zoom;
+    if (flying) {
+      const { right, up } = cameraBasis();
+      moveFly(right, -dx * 0.01);
+      moveFly(up, dy * 0.01);
+    } else {
+      panX -= dx * 0.003 / zoom;
+      panY += dy * 0.003 / zoom;
+    }
   } else {
     rotationY -= dx * 0.005;
     rotationX = Math.max(-1.55, Math.min(1.55, rotationX + dy * 0.005));
@@ -205,17 +299,28 @@ function changeZoom(factor) { zoom = Math.max(0.1, Math.min(10, zoom * factor));
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   const pixels = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? canvas.clientHeight : 1);
-  changeZoom(Math.exp(-pixels * 0.001));
+  if (flying) travel(-pixels * 0.01);
+  else changeZoom(Math.exp(-pixels * 0.001));
   invalidate();
 }, { passive: false });
 canvas.addEventListener('keydown', (e) => {
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  if (flying && ['w', 's', 'a', 'd', 'q', 'e'].includes(e.key.toLowerCase())) {
+    const key = e.key.toLowerCase();
+    const basis = cameraBasis();
+    const direction = 'ws'.includes(key) ? basis.forward : 'ad'.includes(key) ? basis.right : basis.up;
+    moveFly(direction, 'saq'.includes(key) ? -0.2 : 0.2);
+    e.preventDefault();
+    invalidate();
+    return;
+  }
   switch (e.key) {
-    case 'ArrowLeft': rotationY -= 0.1; break;
-    case 'ArrowRight': rotationY += 0.1; break;
+    case 'ArrowLeft': rotationY += flying ? 0.1 : -0.1; break;
+    case 'ArrowRight': rotationY += flying ? -0.1 : 0.1; break;
     case 'ArrowUp': rotationX = Math.max(-1.55, rotationX - 0.1); break;
     case 'ArrowDown': rotationX = Math.min(1.55, rotationX + 0.1); break;
-    case '+': case '=': changeZoom(1.1); break;
-    case '-': case '_': changeZoom(1 / 1.1); break;
+    case '+': case '=': flying ? travel(0.2) : changeZoom(1.1); break;
+    case '-': case '_': flying ? travel(-0.2) : changeZoom(1 / 1.1); break;
     case 'r': case 'R': reset(); break;
     default: return;
   }
@@ -253,11 +358,12 @@ async function init() {
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
 
-  // Uniforms: 3 vec4<f32> = 12 floats
-  // data1: resolution.x, resolution.y, sliderVal, zoom
+  // Uniforms: 4 vec4<f32> = 16 floats
+  // data1: resolution.x, resolution.y, sliderVal, orbit zoom or flight detail
   // data2: mode, rotationX, rotationY, clipDist
   // data3: panX, panY, clipRotationX, clipRotationY
-  const uniformBufferSize = 12 * 4;
+  // data4: flyPosition.xyz, flying
+  const uniformBufferSize = 16 * 4;
   const uniformBuffer = device.createBuffer({
     size: uniformBufferSize,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -265,9 +371,10 @@ async function init() {
 
   const shaderCode = /* wgsl */`
 struct Uniforms {
-  data1 : vec4<f32>, // res.x, res.y, slider, zoom
+  data1 : vec4<f32>, // res.x, res.y, slider, orbit zoom or flight detail
   data2 : vec4<f32>, // mode, rotationX, rotationY, clipDist
   data3 : vec4<f32>, // panX, panY, clipRotationX, clipRotationY
+  data4 : vec4<f32>, // flyPosition.xyz, flying
 };
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 
@@ -485,19 +592,20 @@ fn clipped_distance(p: vec3<f32>, mode: i32, slider: f32) -> f32 {
 
 // Soft shadow via secondary raymarch
 fn soft_shadow(origin: vec3<f32>, lightDir: vec3<f32>, mode: i32, slider: f32) -> f32 {
-  var t = 0.02;
-  let maxT: f32 = 4.0;
+  let detail = select(1.0, getZoom(), uniforms.data4.w > 0.5);
+  var t = 0.02 / detail;
+  let maxT: f32 = 4.0 / detail;
   var res: f32 = 1.0;
   let k: f32 = 16.0;
 
   for (var i: i32 = 0; i < 40; i = i + 1) {
     let p = origin + lightDir * t;
     let d = clipped_distance(p, mode, slider);
-    if (d < 0.001) {
+    if (d < 0.001 / detail) {
       return 0.0;
     }
     res = min(res, k * d / t);
-    t = t + clamp(d, 0.01, 0.2);
+    t = t + clamp(d, 0.01 / detail, 0.2 / detail);
     if (t > maxT) {
       break;
     }
@@ -509,12 +617,13 @@ fn soft_shadow(origin: vec3<f32>, lightDir: vec3<f32>, mode: i32, slider: f32) -
 fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, mode: i32, slider: f32) -> f32 {
   var occ: f32 = 0.0;
   let steps: i32 = 4;
-  let stepSize: f32 = 0.1;
+  let detail = select(1.0, getZoom(), uniforms.data4.w > 0.5);
+  let stepSize: f32 = 0.1 / detail;
   for (var i: i32 = 1; i <= steps; i = i + 1) {
     let t = f32(i) * stepSize;
     let sampleP = p + n * t;
     let d = clipped_distance(sampleP, mode, slider);
-    occ = occ + (t - d);
+    occ = occ + (t - d) * detail;
   }
   occ = occ / f32(steps);
   return clamp(1.0 - 1.5 * occ, 0.0, 1.0);
@@ -524,20 +633,22 @@ fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, mode: i32, slider: f32) -> f32 
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let res = getResolution();
   let slider = getSlider();
-  let zoom = getZoom();
+  let flying = uniforms.data4.w > 0.5;
+  let detail = getZoom();
+  let zoom = select(detail, 1.0, flying);
   let rotX = getRotationX();
   let rotY = getRotationY();
   let clipDist = getClipDist();
   let mode = getMode();
-  let pan = getPan();
+  let pan = select(getPan(), vec2<f32>(0.0), flying);
 
   // UV -> [-1,1]
   let uv = (in.uv * 2.0 - vec2<f32>(1.0, 1.0));
   let aspect = res.x / res.y;
 
-  // Camera position from spherical coordinates (mouse controlled)
-  // rotX = pitch (up/down), rotY = yaw (left/right)
-  // Camera stays at fixed distance; zoom scales the fractal space
+  // Orbit uses spherical coordinates; Fly supplies a world-space position.
+  // rotX = pitch (up/down), rotY = yaw (left/right).
+  // Orbit zoom scales fractal space; Fly uses scale 1 and finer precision.
   let camRadius: f32 = 5.0;
 
   // Build camera basis vectors directly from rotation angles
@@ -547,15 +658,12 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let sinY = sin(rotY);
   let cosY = cos(rotY);
 
-  // Camera position on sphere
-  let camPos = vec3<f32>(
-    camRadius * cosP * sinY,
-    camRadius * sinP,
-    camRadius * cosP * cosY
-  );
+  // Camera position and orientation
+  let outward = vec3<f32>(cosP * sinY, sinP, cosP * cosY);
+  let camPos = select(camRadius * outward, uniforms.data4.xyz, flying);
 
-  // Forward vector (pointing toward origin)
-  let forward = normalize(-camPos);
+  // Fly turns in place: viewing direction is independent of camera position.
+  let forward = -outward;
 
   // Right vector (always horizontal, perpendicular to Y axis rotation)
   let right = vec3<f32>(cosY, 0.0, -sinY);
@@ -573,11 +681,11 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     uv.y * tanFov * up
   );
 
-  // Raymarch - scale precision with zoom level
+  // Raymarch - scale precision with orbit zoom or flight clearance
   let maxDist: f32 = 120.0;
-  let maxSteps: i32 = i32(200.0 + 100.0 * min(zoom, 5.0));  // More steps when zoomed in
-  let hitEps: f32 = 0.001 / zoom;  // Finer hit detection when zoomed
-  let minStep: f32 = 0.001 / zoom;  // Finer minimum step when zoomed
+  let maxSteps: i32 = i32(200.0 + 100.0 * min(detail, 5.0));  // More steps when zoomed in
+  let hitEps: f32 = 0.001 / detail;  // Finer hit detection when zoomed
+  let minStep: f32 = 0.001 / detail;  // Finer minimum step when zoomed
 
   // March from the camera without a fixed world-space cropping box.
   // The step budget and far distance bound the work, not the visible volume.
@@ -636,7 +744,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
   // Shading - use scaled coordinates with pan offset for fractal lookups
   let hitPosScaled = hitPos / zoom + right * pan.x + up * pan.y;
-  var n = estimate_normal(hitPosScaled, mode, slider, zoom);
+  var n = estimate_normal(hitPosScaled, mode, slider, detail);
   if (clipDist > -2.999 && abs(dot(hitPosScaled, clipNormal) - clipDist) < 0.00001) {
     n = -clipNormal;
   }
@@ -650,7 +758,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let spec = pow(max(dot(n, halfDir), 0.0), 40.0);
 
   // Shadows & AO (use scaled coordinates with pan)
-  let sh = soft_shadow(hitPosScaled + n * 0.01 / zoom, lightDir, mode, slider);
+  let sh = soft_shadow(hitPosScaled + n * 0.01 / detail, lightDir, mode, slider);
   let ao = ambient_occlusion(hitPosScaled, n, mode, slider);
 
   // Get escape time for coloring
@@ -707,12 +815,12 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     }],
   });
 
-  const data = new Float32Array(12);
+  const data = new Float32Array(16);
   renderFrame = () => {
     data[0] = canvas.width;
     data[1] = canvas.height;
     data[2] = sliderVal;
-    data[3] = zoom;
+    data[3] = flying ? Math.max(1, Math.min(100, 1 / Math.max(navigationDistance(flyPosition), 0.01))) : zoom;
     data[4] = mode;
     data[5] = rotationX;
     data[6] = rotationY;
@@ -721,6 +829,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     data[9] = panY;
     data[10] = clipRotationX;
     data[11] = clipRotationY;
+    data.set(flyPosition, 12);
+    data[15] = flying ? 1 : 0;
     device.queue.writeBuffer(uniformBuffer, 0, data.buffer, data.byteOffset, data.byteLength);
 
     const encoder = device.createCommandEncoder();
@@ -752,6 +862,11 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 // Browsers can restore form values on reload or history navigation without
 // firing input events. Reset both the controls and renderer state together.
 function resetOnLoad() {
+  flying = false;
+  flyPosition = [0, 0, 5];
+  orbitView = null;
+  drag = null;
+  updateNavigationUI();
   clipAnimation = null;
   rotationX = 0;
   rotationY = 0;

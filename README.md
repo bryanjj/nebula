@@ -28,7 +28,9 @@ The opening view features the Mandelbrot set: **Re(z₀) = 0** and **Clip plane 
 - Scroll up to zoom in; scroll down to zoom out.
 - Choose **Re(z₀)**, **Im(z₀)**, **Re(c)**, or **Im(c)** in the dropdown above the slice slider. The slider controls that coordinate; the other three form the visible volume. An axis guide in the canvas corner rotates with the camera to show the visible coordinates’ directions. Its labels change with the selected slider dimension.
 - **Clip plane** cuts into the volume; its minimum disables clipping. The cut stays fixed to the fractal as you orbit, zoom, or pan. **Align to view** smoothly rotates the plane to face the current camera while keeping the depth value.
-- **Reset view** (or `R`) restores the camera orientation and zoom. It preserves the slider dimension, both slider values, clip-plane orientation, and pan. Refresh the page to restore all defaults.
+- In Orbit, **Reset view** (or `R`) restores the camera orientation and zoom. It preserves the slider dimension, both slider values, clip-plane orientation, and pan. Refresh the page to restore all defaults.
+- **Fly** starts from your current viewpoint. Drag to look around; scroll or use `W` / `S` to move forward/backward, `A` / `D` to move sideways, and `Q` / `E` to move down/up. Right-drag or Shift-drag also moves sideways/up/down. Focus the canvas to use keyboard controls. The center ring shows your travel direction.
+- Flight slows near surfaces and uses finer rendering precision as you approach. It uses the same approximate distance field as the renderer, not solid collision detection; very thin features and extreme close-ups can still show artifacts. **Reset view** (or `R`) returns you outside while preserving your slice and cut. Switching back to **Orbit** restores the overview you left.
 - Both sliders snap to zero when dragged near the center. Use the arrow keys on a focused slider for precise adjustments near zero.
 - Focus the canvas for arrow-key orbit, `+` / `−` zoom, and `R` reset.
 

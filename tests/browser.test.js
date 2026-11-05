@@ -111,6 +111,30 @@ test('slider thumbs snap around zero without trapping arrow-key adjustments', as
   } finally { await page.close(); }
 });
 
+test('Fly controls fit on mobile and return to Orbit on refresh', async () => {
+  const page = await browser.newPage({ viewport: { width: 360, height: 780 } });
+  try {
+    await withoutGPU(page);
+    await page.goto(origin);
+    await page.getByRole('button', { name: 'Fly', exact: true }).click();
+    assert.equal(await page.locator('#flyButton').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('#flyReticle').isVisible(), true);
+    assert.match(await page.locator('#help').innerText(), /Scroll or W\/S/);
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'gfx');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.locator('#gfx').press('w');
+    await page.getByRole('button', { name: 'Reset view', exact: true }).click();
+    assert.equal(await page.locator('#flyButton').getAttribute('aria-pressed'), 'true');
+    await page.getByRole('button', { name: 'Orbit', exact: true }).click();
+    assert.equal(await page.locator('#flyReticle').isVisible(), false);
+    assert.match(await page.locator('#help').innerText(), /Drag to orbit/);
+    await page.getByRole('button', { name: 'Fly', exact: true }).click();
+    await page.reload();
+    assert.equal(await page.locator('#orbitButton').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('#flyReticle').isVisible(), false);
+  } finally { await page.close(); }
+});
+
 test('refresh resets controls before the next slider input', async () => {
   const page = await browser.newPage();
   try {
@@ -212,6 +236,13 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     for (let i = 0; i < 32; i++) await page.keyboard.press('ArrowRight');
     await page.keyboard.press('+');
     await page.keyboard.press('ArrowLeft');
+    await page.getByRole('button', { name: 'Fly', exact: true }).click();
+    for (let i = 0; i < 12; i++) await page.keyboard.press('w');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('a');
+    await page.keyboard.press('e');
+    await page.getByRole('button', { name: 'Reset view', exact: true }).click();
+    await page.getByRole('button', { name: 'Orbit', exact: true }).click();
     await page.waitForTimeout(200);
     assert.equal(await page.locator('#status').getAttribute('data-error'), null);
     assert.deepEqual(errors, []);
