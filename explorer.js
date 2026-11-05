@@ -209,8 +209,8 @@ function cameraBasis(pitch = rotationX, yaw = rotationY) {
 }
 
 // CPU counterpart of the shader's pseudo-distance, used only for navigation.
-// Keep the same mapping, derivative weights, and clipping. Navigation uses
-// the conservative 80-iteration field; visible Fly hits can refine further.
+// Use the renderer's maximum iteration budget for collision checks so a
+// low-detail field cannot fill passages that a close-up render reveals.
 function navigationDistance(p) {
   const [x, y, z] = p;
   let [a, b, c, d] = [
@@ -218,7 +218,8 @@ function navigationDistance(p) {
     [x, sliderVal, y, z], [x, y, sliderVal, z],
   ][mode];
   let za = 1, zb = 0, ca = 0, cb = 0, distance = 0;
-  for (let i = 0; i < 80; i++) {
+  let checkpointA = a, checkpointB = b, checkpointAge = 0, checkpointPeriod = 1;
+  for (let i = 0; i < 1024; i++) {
     [za, zb] = [2 * (a * za - b * zb), 2 * (a * zb + b * za)];
     [ca, cb] = [2 * (a * ca - b * cb) + 1, 2 * (a * cb + b * ca)];
     [a, b] = [a * a - b * b + c, 2 * a * b + d];
@@ -228,6 +229,13 @@ function navigationDistance(p) {
       const derivative = Math.max(Math.sqrt(zWeight * (za * za + zb * zb) + (3 - zWeight) * (ca * ca + cb * cb)), 1e-6);
       distance = Math.min(1, Math.max(0, 0.5 * Math.log(r) * r / derivative));
       break;
+    }
+    if ((i & 15) === 0) {
+      if (a === checkpointA && b === checkpointB) break;
+      if (++checkpointAge === checkpointPeriod) {
+        checkpointA = a; checkpointB = b;
+        checkpointAge = 0; checkpointPeriod *= 2;
+      }
     }
   }
   if (clipVal > -2.999) {
@@ -304,7 +312,10 @@ function moveFly(direction, amount) {
   for (let step = 0; step < steps; step++) {
     const bubble = activeBubbleRadius();
     const clearance = Math.max(navigationDistance(flyPosition), bubble);
-    const speed = Math.max(bubble ? 0 : 0.002, Math.min(1.5, clearance)) * 0.6;
+    // Positive clearance must permit arbitrarily small approaches. Applying
+    // a speed floor here could make every proposed step cross the wall.
+    // Retain a small escape speed only when already inside solid material.
+    const speed = (clearance > 0 ? Math.min(1.5, clearance) : 0.002) * 0.6;
     const next = flyPosition.map((v, i) => v + direction[i] * speed * bounded / steps);
     if (!bubble && clearance > 0 && navigationDistance(next) <= 0) break;
     flyPosition = next;

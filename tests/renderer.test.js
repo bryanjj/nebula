@@ -82,6 +82,9 @@ async function viewer({ failPipeline = false, reducedMotion = false, restoredCon
   return {
     elements, document, window, lose,
     distance(point) { return vm.runInContext(`navigationDistance(${JSON.stringify(point)})`, context); },
+    pose(position, pitch = 0, yaw = 0) {
+      vm.runInContext(`flyPosition = ${JSON.stringify(position)}; rotationX = ${pitch}; rotationY = ${yaw}; invalidate();`, context);
+    },
     get uniforms() { return uniforms; },
     async finishGPU(elapsed = 0) { now += elapsed; completeGPU(); await new Promise(resolve => setImmediate(resolve)); },
     timers(elapsed) { now += elapsed; for (const [id, timer] of timers) if (timer.at <= now) { timers.delete(id); timer.callback(); } },
@@ -622,4 +625,33 @@ test('slow Fly previews never fall below screen resolution', async () => {
     assert.ok(app.uniforms[0] * app.uniforms[1] <= 2_000_000);
     await app.finishGPU(1000);
   }
+});
+
+
+test('ordinary Fly recognizes late-escaping space and keeps approaching a wall with no bubble', async () => {
+  const app = await viewer();
+  app.elements.flyButton.dispatchEvent(new Event('click'));
+  app.input('clipSlider', '-3');
+  assert.ok(app.distance([0.2504, 0, 0]) > 0, 'space escaping after 80 iterations is navigable');
+  assert.ok(app.distance([0.250025, 0, 0]) > 0, 'space escaping after 512 iterations is navigable');
+  assert.equal(app.distance([0.25, 0, 0]), 0, 'solid material is still solid');
+  app.pose([0.2516, 0, 0], 0, Math.PI / 2);
+  await app.frame();
+  app.key('w'); await app.frame();
+  assert.ok(app.uniforms[12] < 0.2516, 'no invisible stop at the coarse iteration boundary');
+
+  app.input('clipSlider', '0');
+  const finalPositions = [];
+  for (const bubbleSetting of ['-100', '330']) {
+    app.input('bubbleSlider', bubbleSetting);
+    app.pose([0, 0, 0.00001]);
+    await app.frame();
+    for (let step = 0; step < 100; step++) app.key('w');
+    await app.frame();
+    assert.equal(app.uniforms[16], 0, 'Cutaway off never supplies a bubble radius');
+    assert.ok(app.uniforms[14] > 0, 'ordinary Fly does not cross into solid material');
+    assert.ok(app.uniforms[14] < 1e-9, 'small clearances do not get stuck at the minimum movement step');
+    finalPositions.push(app.uniforms.slice(12, 15));
+  }
+  assert.deepEqual(finalPositions[0], finalPositions[1], 'stored bubble size cannot affect ordinary flight');
 });
