@@ -55,10 +55,11 @@ function updateAxisOrientation() {
   }
 }
 
+// Open on the z₀ = 0 cut: Re(c) right, Im(c) up, Im(z₀) toward the camera.
 let sliderVal = 0;
-let clipVal = -3;
-let mode = 0;
-let rotationX = 0.3;
+let clipVal = 0;
+let mode = 1;
+let rotationX = 0;
 let rotationY = 0;
 let clipRotationX = rotationX;
 let clipRotationY = rotationY;
@@ -138,7 +139,7 @@ document.getElementById('alignClipButton').addEventListener('click', () => {
 });
 
 function reset() {
-  rotationX = 0.3;
+  rotationX = 0;
   rotationY = 0;
   zoom = 1;
   invalidate();
@@ -728,21 +729,21 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 // firing input events. Reset both the controls and renderer state together.
 function resetOnLoad() {
   clipAnimation = null;
-  rotationX = 0.3;
+  rotationX = 0;
   rotationY = 0;
   clipRotationX = rotationX;
   clipRotationY = rotationY;
   zoom = 1;
   panX = panY = 0;
-  mode = 0;
+  mode = 1;
   sliderVal = 0;
-  clipVal = -3;
-  modeSelect.value = '0';
+  clipVal = 0;
+  modeSelect.value = '1';
   slider.value = '0';
-  clipSlider.value = '-3';
+  clipSlider.value = '0';
   sliderValue.textContent = '0.000';
-  clipValue.textContent = '-3.00';
-  slider.ariaLabel = sliderDimNames[0];
+  clipValue.textContent = '0.00';
+  slider.ariaLabel = sliderDimNames[mode];
   updateAxisGuide();
   resizeCanvas();
   invalidate();

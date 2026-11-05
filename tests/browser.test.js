@@ -97,11 +97,11 @@ test('refresh resets controls before the next slider input', async () => {
     await page.locator('#slider').press('End');
     await page.getByLabel('Clip plane', { exact: true }).press('End');
     await page.reload();
-    assert.equal(await page.getByLabel('Slider dimension').inputValue(), '0');
+    assert.equal(await page.getByLabel('Slider dimension').inputValue(), '1');
     assert.equal(await page.locator('#slider').inputValue(), '0');
-    assert.equal(await page.locator('#clipSlider').inputValue(), '-3');
+    assert.equal(await page.locator('#clipSlider').inputValue(), '0');
     assert.equal(await page.locator('#sliderValue').innerText(), '0.000');
-    assert.equal(await page.locator('#clipValue').innerText(), '-3.00');
+    assert.equal(await page.locator('#clipValue').innerText(), '0.00');
     await page.locator('#slider').press('ArrowRight');
     assert.equal(await page.locator('#sliderValue').innerText(), '0.001');
   } finally { await page.close(); }

@@ -17,35 +17,35 @@
       <div class="control-heading">
         <label for="modeSelect">Slider dimension</label>
         <select id="modeSelect">
-          <option value="1">Re(z₀)</option>
+          <option value="1" selected>Re(z₀)</option>
           <option value="2">Im(z₀)</option>
           <option value="3">Re(c)</option>
-          <option value="0" selected>Im(c)</option>
+          <option value="0">Im(c)</option>
         </select>
       </div>
-      <div class="range"><input id="slider" aria-label="Im(c)" type="range" min="-1.5" max="1.5" step="0.001" value="0"><output id="sliderValue" for="slider">0.000</output></div>
+      <div class="range"><input id="slider" aria-label="Re(z₀)" type="range" min="-1.5" max="1.5" step="0.001" value="0"><output id="sliderValue" for="slider">0.000</output></div>
     </div>
     <div class="control">
       <div class="control-heading">
         <label for="clipSlider">Clip plane</label>
         <button id="alignClipButton" type="button" title="Align the cut to the current view, then keep it fixed to the fractal">Align to view</button>
       </div>
-      <div class="range"><input id="clipSlider" type="range" min="-3" max="3" step="0.01" value="-3"><output id="clipValue" for="clipSlider">-3.00</output></div>
+      <div class="range"><input id="clipSlider" type="range" min="-3" max="3" step="0.01" value="0"><output id="clipValue" for="clipSlider">0.00</output></div>
     </div>
     <button id="resetButton" type="button" title="Restore the starting camera orientation and zoom">Reset view</button>
   </section>
   <main id="canvas-wrap">
     <canvas id="gfx" tabindex="0" aria-label="Interactive 4D fractal slice" aria-describedby="help"></canvas>
-    <svg id="axisGuide" viewBox="0 0 160 140" role="img" aria-label="Visible axes: X Re(z₀), Y Im(z₀), Z Re(c)">
+    <svg id="axisGuide" viewBox="0 0 160 140" role="img" aria-label="Visible axes: X Re(c), Y Im(c), Z Im(z₀)">
       <g fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path id="axisXArrow" class="axis-x" d="M80 76 L130 101 M122 94 L130 101 L120 100" />
         <path id="axisYArrow" class="axis-y" d="M80 76 L80 29 M75 37 L80 29 L85 37" />
         <path id="axisZArrow" class="axis-z" d="M80 76 L30 101 M40 100 L30 101 L38 94" />
       </g>
       <circle cx="80" cy="70" r="3" fill="#dce4f2" />
-      <text id="axisXLabel" class="axis-x" x="126" y="121">Re(z₀)</text>
-      <text id="axisYLabel" class="axis-y" x="80" y="18">Im(z₀)</text>
-      <text id="axisZLabel" class="axis-z" x="34" y="121">Re(c)</text>
+      <text id="axisXLabel" class="axis-x" x="126" y="121">Re(c)</text>
+      <text id="axisYLabel" class="axis-y" x="80" y="18">Im(c)</text>
+      <text id="axisZLabel" class="axis-z" x="34" y="121">Im(z₀)</text>
     </svg>
     <noscript>Enable JavaScript to explore the fractal.</noscript>
   </main>
@@ -54,6 +54,6 @@
     <p id="status" role="status" aria-live="polite">Initializing WebGPU…</p>
     <button id="retryButton" type="button" hidden>Retry</button>
   </footer>
-  <script type="module" src="explorer.js?v=12"></script>
+  <script type="module" src="explorer.js?v=13"></script>
 </body>
 </html>

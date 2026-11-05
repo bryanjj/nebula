@@ -247,6 +247,9 @@ test('axis guide projects world axes through the camera basis and ignores zoom',
   const arrow = (axis) => app.elements[`axis${axis}Arrow`].attributes.d;
   const initialX = arrow('X');
   assert.match(initialX, /^M80 70 L116 70 /);
+  assert.match(arrow('Y'), /^M80 70 L80 34 /);
+  assert.equal(arrow('Z'), 'M80 70 L80 70');
+  assert.deepEqual(['X', 'Y', 'Z'].map(axis => app.elements[`axis${axis}Label`].textContent), ['Re(c)', 'Im(c)', 'Im(z₀)']);
   for (let i = 0; i < 16; i++) app.key('ArrowRight');
   const zLabel = app.elements.axisZLabel.attributes;
   assert.ok(Number(zLabel.x) < 30, 'positive Z points left after a quarter orbit');
@@ -263,11 +266,13 @@ test('page load discards restored controls and keeps the first slider input in s
   const app = await viewer({ restoredControls: true });
   app.frame();
   assert.equal(app.elements.slider.value, '0');
-  assert.equal(app.elements.clipSlider.value, '-3');
-  assert.equal(app.elements.modeSelect.value, '0');
+  assert.equal(app.elements.clipSlider.value, '0');
+  assert.equal(app.elements.modeSelect.value, '1');
   assert.equal(app.uniforms[2], 0);
-  assert.equal(app.uniforms[4], 0);
-  assert.equal(app.uniforms[7], -3);
+  assert.equal(app.uniforms[4], 1);
+  assert.deepEqual(app.uniforms.slice(5, 7), [0, 0]);
+  assert.deepEqual(app.uniforms.slice(10, 12), [0, 0]);
+  assert.equal(app.uniforms[7], 0);
   app.input('slider', '0.001');
   app.frame();
   assert.ok(Math.abs(app.uniforms[2] - 0.001) < 1e-8);
@@ -277,5 +282,5 @@ test('page load discards restored controls and keeps the first slider input in s
   app.frame();
   assert.equal(app.uniforms[2], 0);
   assert.equal(app.uniforms[6], 0);
-  assert.equal(app.uniforms[7], -3);
+  assert.equal(app.uniforms[7], 0);
 });

@@ -21,6 +21,8 @@ python3 -m http.server 8000 --bind 127.0.0.1
 
 Open **http://localhost:8000** in a WebGPU-enabled browser with hardware acceleration. Use localhost or HTTPS; opening the HTML directly is not the supported startup path. If WebGPU cannot initialize, the status area shows the failure and a Retry button.
 
+The opening view features the Mandelbrot set: **Re(z₀) = 0** and **Clip plane = 0**, viewed straight onto the **Im(z₀) = 0** cut. **Re(c)** points right, **Im(c)** points up, and **Im(z₀)** is perpendicular to the screen.
+
 - Drag (or single-finger drag) to orbit.
 - Right-drag or Shift-drag to pan.
 - Scroll up to zoom in; scroll down to zoom out.
