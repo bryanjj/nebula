@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { probeDistances, probeCutaway, probeAdaptiveDetail, referenceDistance } from './shader-probe.js';
+import { probeDistances, probeAdaptiveDetail, referenceDistance } from './shader-probe.js';
 import { chromium } from 'playwright';
 
 let server;
@@ -119,20 +119,10 @@ test('Fly controls fit on mobile and return to Orbit on refresh', async () => {
     await page.getByRole('button', { name: 'Fly', exact: true }).click();
     assert.equal(await page.locator('#flyButton').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('#flyReticle').isVisible(), true);
-    assert.equal(await page.locator('#bubbleSlider').isEnabled(), false);
-    await page.getByRole('button', { name: 'Cutaway', exact: true }).click();
-    assert.equal(await page.locator('#bubbleSlider').isEnabled(), true);
     const canvasBox = await page.locator('#gfx').boundingBox();
     const reticleBox = await page.locator('#flyReticle').boundingBox();
     assert.ok(Math.abs(reticleBox.x + reticleBox.width / 2 - canvasBox.x - canvasBox.width / 2) < 0.5);
     assert.ok(Math.abs(reticleBox.y + reticleBox.height / 2 - canvasBox.y - canvasBox.height / 2) < 0.5);
-    await page.locator('#bubbleSlider').press('Home');
-    assert.equal(await page.locator('#bubbleValue').innerText(), '0.0001');
-    await page.locator('#bubbleSlider').press('ArrowRight');
-    assert.equal(await page.locator('#bubbleValue').innerText(), '0.000102');
-    assert.equal(await page.locator('#bubbleSlider').getAttribute('aria-valuetext'), '0.000102');
-    await page.locator('#bubbleSlider').press('End');
-    assert.equal(await page.locator('#bubbleValue').innerText(), '2');
     await page.locator('#gfx').focus();
     assert.match(await page.locator('#help').innerText(), /Scroll or W\/S/);
     assert.equal(await page.evaluate(() => document.activeElement.id), 'gfx');
@@ -143,12 +133,9 @@ test('Fly controls fit on mobile and return to Orbit on refresh', async () => {
     await page.getByRole('button', { name: 'Orbit', exact: true }).click();
     assert.equal(await page.locator('#flyReticle').isVisible(), false);
     assert.match(await page.locator('#help').innerText(), /Drag to orbit/);
-    assert.equal(await page.locator('#flyControls').isVisible(), false);
     await page.getByRole('button', { name: 'Fly', exact: true }).click();
     await page.reload();
     assert.equal(await page.locator('#orbitButton').getAttribute('aria-pressed'), 'true');
-    assert.equal(await page.locator('#cutawayButton').getAttribute('aria-pressed'), 'false');
-    assert.equal(await page.locator('#bubbleSlider').inputValue(), '0');
     assert.equal(await page.locator('#flyReticle').isVisible(), false);
   } finally { await page.close(); }
 });
@@ -230,13 +217,12 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     const source = await readFile(new URL('../explorer.js', import.meta.url), 'utf8');
     const shader = source.split('const shaderCode = /* wgsl */`')[1].split('`;')[0];
     const adaptive = await page.evaluate(probeAdaptiveDetail, shader);
-    assert.deepEqual(adaptive[0], adaptive[1], 'small and large bubbles cost the same for a distant surface');
     assert.equal(adaptive[0][1], 80, 'distant surfaces retain the base iteration budget');
-    assert.ok(adaptive[2][0] < adaptive[0][0] && adaptive[2][1] > adaptive[0][1]);
-    assert.ok(adaptive[3][0] < adaptive[2][0] && adaptive[3][1] > adaptive[2][1]);
-    assert.ok(adaptive[4][0] < adaptive[2][0], 'more canvas pixels resolve finer features');
-    assert.equal(adaptive[2][2], 0, 'the coarse field fills a late-escaping point');
-    assert.ok(adaptive[3][3] > adaptive[3][0], 'refinement opens that point at the visible scale');
+    assert.ok(adaptive[1][0] < adaptive[0][0] && adaptive[1][1] > adaptive[0][1]);
+    assert.ok(adaptive[2][0] < adaptive[1][0] && adaptive[2][1] > adaptive[1][1]);
+    assert.ok(adaptive[3][0] < adaptive[1][0], 'more canvas pixels resolve finer features');
+    assert.equal(adaptive[1][2], 0, 'the coarse field fills a late-escaping point');
+    assert.ok(adaptive[2][3] > adaptive[2][0], 'refinement opens that point at the visible scale');
     for (const row of adaptive) {
       assert.ok(row.every(Number.isFinite));
       assert.equal(row[4], 0, 'true solid remains solid');
@@ -251,15 +237,6 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
       assert.ok(row[10] > row[8], 'the deeper budget can resolve it at this scale');
       assert.ok(row[11] > 1, 'late escapes retain color variation instead of becoming solid pink');
     }
-    const cutSamples = await page.evaluate(probeCutaway, shader);
-    const expectedCuts = [
-      [0.5, 0.25, 0, 0, 0.25, 0.5, 1], [0.25, 0, 0, 0, 0, 0.25, 1],
-      [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0],
-      [0.5, 0.25, 0, 0, 0.35, 0.5, 1], [0.001, 0, 0, 0, 0, 0.001, 1], [0.0001, 0, 0, 0, 0, 0.0001, 1],
-    ];
-    cutSamples.forEach((sample, i) => sample.forEach((value, j) => {
-      assert.ok(Math.abs(value - expectedCuts[i][j]) < 1e-5, `bubble field case ${i}, sample ${j}`);
-    }));
     const samples = await page.evaluate(probeDistances, shader);
     for (const sample of samples) {
       for (let mode = 0; mode < 4; mode++) {
@@ -286,7 +263,6 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     await page.keyboard.press('+');
     await page.keyboard.press('ArrowLeft');
     await page.getByRole('button', { name: 'Fly', exact: true }).click();
-    await page.getByRole('button', { name: 'Cutaway', exact: true }).click();
     for (let i = 0; i < 50; i++) await page.keyboard.press('w');
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('a');

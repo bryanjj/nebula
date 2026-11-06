@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Explore three-dimensional slices of the four-dimensional Mandelbrot–Julia fractal with WebGPU.">
   <title>Nebula · 4D Fractal Explorer</title>
-  <link rel="stylesheet" href="explorer.css?v=7">
+  <link rel="stylesheet" href="explorer.css?v=8">
 </head>
 <body>
   <header>
@@ -39,13 +39,6 @@
       </div>
       <button id="resetButton" type="button" title="Restore the starting camera orientation and zoom">Reset view</button>
     </div>
-    <div id="flyControls" class="fly-controls" hidden>
-      <button id="cutawayButton" type="button" aria-pressed="false" title="Carve a bubble around the camera and fly through solid material">Cutaway</button>
-      <div class="control">
-        <label for="bubbleSlider">Bubble size</label>
-        <div class="range"><input id="bubbleSlider" type="range" min="-100" max="330" step="1" value="0" aria-valuetext="0.001" disabled><output id="bubbleValue" for="bubbleSlider">0.001</output></div>
-      </div>
-    </div>
   </section>
   <main id="canvas-wrap">
     <canvas id="gfx" tabindex="0" aria-label="Interactive 4D fractal slice" aria-describedby="help"></canvas>
@@ -68,6 +61,6 @@
     <p id="status" role="status" aria-live="polite">Initializing WebGPU…</p>
     <button id="retryButton" type="button" hidden>Retry</button>
   </footer>
-  <script type="module" src="explorer.js?v=29"></script>
+  <script type="module" src="explorer.js?v=30"></script>
 </body>
 </html>

@@ -20,7 +20,7 @@ async function viewer({ failPipeline = false, reducedMotion = false, restoredCon
     setPointerCapture() {}
     getBoundingClientRect() { return { width, height }; }
   }
-  const ids = ['flyControls', 'cutawayButton', 'bubbleSlider', 'bubbleValue', 'orbitButton', 'flyButton', 'flyReticle', 'help', 'gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'retryButton', 'resetButton', 'alignClipButton', 'axisGuide', 'axisXLabel', 'axisYLabel', 'axisZLabel', 'axisXArrow', 'axisYArrow', 'axisZArrow'];
+  const ids = ['orbitButton', 'flyButton', 'flyReticle', 'help', 'gfx', 'slider', 'sliderValue', 'clipSlider', 'clipValue', 'modeSelect', 'status', 'retryButton', 'resetButton', 'alignClipButton', 'axisGuide', 'axisXLabel', 'axisYLabel', 'axisZLabel', 'axisXArrow', 'axisYArrow', 'axisZArrow'];
   const elements = Object.fromEntries(ids.map((id) => [id, new Element()]));
   elements.slider.min = '-1.5';
   elements.slider.max = '1.5';
@@ -449,105 +449,11 @@ test('flight slows near the cut, backs out, and resets safely', async () => {
 });
 
 
-test('Cutaway crosses solid material, changes size without moving, and is inactive in Orbit', async () => {
-  const app = await viewer();
-  assert.equal(app.elements.flyControls.hidden, true);
-  app.elements.flyButton.dispatchEvent(new Event('click'));
-  assert.equal(app.elements.flyControls.hidden, false);
-  assert.equal(app.elements.bubbleSlider.disabled, true);
-  app.elements.cutawayButton.dispatchEvent(new Event('click'));
-  await app.frame();
-  assert.equal(app.elements.bubbleSlider.disabled, false);
-  assert.ok(Math.abs(app.uniforms[16] - 0.001) < 1e-9);
-  app.input('bubbleSlider', '300');
-  // Enter the retained solid side of the default Mandelbrot cut.
-  for (let i = 0; i < 100 && app.uniforms[14] > -0.3; i++) {
-    app.key('w');
-    await app.frame();
-  }
-  const position = app.uniforms.slice(12, 15);
-  assert.ok(position[2] < -0.2 && position[2] > -0.9);
-  assert.equal(app.distance(position), 0);
-  app.input('bubbleSlider', '200');
-  await app.frame();
-  assert.deepEqual(app.uniforms.slice(12, 15), position);
-  assert.ok(Math.abs(app.uniforms[16] - 0.1) < 1e-7);
-  assert.equal(app.elements.bubbleValue.textContent, '0.1');
-  app.key('w');
-  await app.frame();
-  const smallStep = position[2] - app.uniforms[14];
-  app.input('bubbleSlider', '300');
-  await app.frame();
-  const before = app.uniforms[14];
-  app.key('w');
-  await app.frame();
-  assert.ok(Math.abs((before - app.uniforms[14]) / smallStep - 10) < 0.001);
-  app.elements.cutawayButton.dispatchEvent(new Event('click'));
-  await app.frame();
-  assert.equal(app.uniforms[16], 0);
-  assert.deepEqual(app.uniforms.slice(12, 15), [0, 0, 5], 'disabling inside solid returns outside');
-  app.elements.cutawayButton.dispatchEvent(new Event('click'));
-  app.input('bubbleSlider', '100');
-  app.key('r');
-  await app.frame();
-  assert.ok(Math.abs(app.uniforms[16] - 0.01) < 1e-9, 'Reset view preserves Cutaway settings');
-  app.elements.orbitButton.dispatchEvent(new Event('click'));
-  await app.frame();
-  assert.equal(app.uniforms[16], 0);
-  assert.equal(app.elements.flyControls.hidden, true);
-  app.elements.flyButton.dispatchEvent(new Event('click'));
-  await app.frame();
-  assert.ok(Math.abs(app.uniforms[16] - 0.01) < 1e-9, 'returning to Fly restores the bubble setting');
-  app.window.dispatchEvent(new Event('pageshow'));
-  await app.frame();
-  assert.equal(app.uniforms[16], 0);
-  assert.equal(app.elements.cutawayButton.attributes['aria-pressed'], 'false');
-  assert.equal(app.elements.bubbleSlider.value, '0');
-});
-
-
-test('logarithmic bubble sizes retain tiny values with matching movement speed', async () => {
-  const app = await viewer();
-  app.elements.flyButton.dispatchEvent(new Event('click'));
-  app.elements.cutawayButton.dispatchEvent(new Event('click'));
-  for (const [position, radius] of [[-100, 0.0001], [-99, 0.000102], [0, 0.001], [1, 0.00102], [100, 0.01], [200, 0.1], [300, 1], [330, 2]]) {
-    app.input('bubbleSlider', String(position));
-    await app.frame();
-    assert.ok(Math.abs(app.uniforms[16] - radius) < 1e-7);
-    assert.equal(app.elements.bubbleValue.textContent, String(radius));
-    assert.equal(app.elements.bubbleSlider.attributes['aria-valuetext'], String(radius));
-  }
-  app.input('bubbleSlider', '300');
-  await app.frame();
-  for (let i = 0; i < 100 && app.uniforms[14] > -0.3; i++) {
-    app.key('w');
-    await app.frame();
-  }
-  const before = app.uniforms.slice(12, 15);
-  assert.equal(app.distance(before), 0);
-  app.input('bubbleSlider', '0');
-  await app.frame();
-  assert.deepEqual(app.uniforms.slice(12, 15), before, 'resizing does not move the camera');
-  assert.equal(app.uniforms[3], 1, 'bubble size does not impose a view-wide detail level');
-  app.key('w');
-  await app.frame();
-  assert.ok(Math.abs((before[2] - app.uniforms[14]) - 0.00012) < 1e-7, 'movement scales to the tiny radius');
-  const smallerStart = app.uniforms.slice(12, 15);
-  app.input('bubbleSlider', '-100');
-  await app.frame();
-  assert.deepEqual(app.uniforms.slice(12, 15), smallerStart);
-  app.key('w');
-  await app.frame();
-  assert.ok(Math.abs((smallerStart[2] - app.uniforms[14]) - 0.000012) < 1e-7, 'the new minimum also reduces movement tenfold');
-});
-
-
 test('slow GPU coalesces repeated movement into the newest pose without a frame backlog', async () => {
   const app = await viewer({ holdGPU: true });
   await app.frame();
   assert.equal(app.submitted, 1);
   app.elements.flyButton.dispatchEvent(new Event('click'));
-  app.elements.cutawayButton.dispatchEvent(new Event('click'));
   for (let i = 0; i < 20; i++) { app.key('ArrowRight'); app.key('w'); await app.frame(); }
   assert.equal(app.submitted, 1, 'no extra work is submitted while the GPU is busy');
   await app.finishGPU(100);
@@ -586,32 +492,28 @@ test('fresh input cancels idle refinement and hidden tabs submit no GPU work', a
   assert.equal(app.submitted, submitted);
 });
 
-test('W preserves a fixed landmark at the reticle across orientations and bubble sizes', async () => {
+test('W preserves a fixed landmark at the reticle across orientations', async () => {
   const app = await viewer();
   app.elements.flyButton.dispatchEvent(new Event('click'));
-  app.elements.cutawayButton.dispatchEvent(new Event('click'));
   // A fixed landmark placed along the viewing axis must remain centered after
   // forward travel. Test projections independently of the movement function.
-  for (const radius of ['0', '200', '330']) {
-    app.input('bubbleSlider', radius);
-    for (let turn = 0; turn < 8; turn++) {
-      app.key('ArrowRight'); app.key('ArrowUp');
-      await app.frame();
-      const u = app.uniforms, pitch = u[5], yaw = u[6];
-      const forward = [-Math.cos(pitch)*Math.sin(yaw), -Math.sin(pitch), -Math.cos(pitch)*Math.cos(yaw)];
-      const right = [Math.cos(yaw), 0, -Math.sin(yaw)];
-      const up = [-Math.sin(pitch)*Math.sin(yaw), Math.cos(pitch), -Math.sin(pitch)*Math.cos(yaw)];
-      const before = u.slice(12,15);
-      const landmark = before.map((v,i) => v + 10*forward[i]);
-      app.key('w'); await app.frame();
-      const after = app.uniforms.slice(12,15);
-      const delta = after.map((v,i) => v-before[i]);
-      const dot = (a,b) => a.reduce((sum,v,i) => sum+v*b[i],0);
-      assert.ok(dot(delta,forward)>0, 'W travels forward');
-      const toLandmark = landmark.map((v,i)=>v-after[i]);
-      assert.ok(Math.abs(dot(toLandmark,right))<2e-6, 'no horizontal drift of fixed geometry');
-      assert.ok(Math.abs(dot(toLandmark,up))<2e-6, 'no vertical drift of fixed geometry');
-    }
+  for (let turn = 0; turn < 24; turn++) {
+    app.key('ArrowRight'); app.key('ArrowUp');
+    await app.frame();
+    const u = app.uniforms, pitch = u[5], yaw = u[6];
+    const forward = [-Math.cos(pitch)*Math.sin(yaw), -Math.sin(pitch), -Math.cos(pitch)*Math.cos(yaw)];
+    const right = [Math.cos(yaw), 0, -Math.sin(yaw)];
+    const up = [-Math.sin(pitch)*Math.sin(yaw), Math.cos(pitch), -Math.sin(pitch)*Math.cos(yaw)];
+    const before = u.slice(12,15);
+    const landmark = before.map((v,i) => v + 10*forward[i]);
+    app.key('w'); await app.frame();
+    const after = app.uniforms.slice(12,15);
+    const delta = after.map((v,i) => v-before[i]);
+    const dot = (a,b) => a.reduce((sum,v,i) => sum+v*b[i],0);
+    assert.ok(dot(delta,forward)>0, 'W travels forward');
+    const toLandmark = landmark.map((v,i)=>v-after[i]);
+    assert.ok(Math.abs(dot(toLandmark,right))<2e-6, 'no horizontal drift of fixed geometry');
+    assert.ok(Math.abs(dot(toLandmark,up))<2e-6, 'no vertical drift of fixed geometry');
   }
 });
 
@@ -628,7 +530,7 @@ test('slow Fly previews never fall below screen resolution', async () => {
 });
 
 
-test('ordinary Fly recognizes late-escaping space and keeps approaching a wall with no bubble', async () => {
+test('Fly recognizes late-escaping space and keeps approaching a wall', async () => {
   const app = await viewer();
   app.elements.flyButton.dispatchEvent(new Event('click'));
   app.input('clipSlider', '-3');
@@ -642,17 +544,10 @@ test('ordinary Fly recognizes late-escaping space and keeps approaching a wall w
   assert.ok(app.uniforms[12] < 0.2516, 'no invisible stop at the coarse iteration boundary');
 
   app.input('clipSlider', '0');
-  const finalPositions = [];
-  for (const bubbleSetting of ['-100', '330']) {
-    app.input('bubbleSlider', bubbleSetting);
-    app.pose([0, 0, 0.00001]);
-    await app.frame();
-    for (let step = 0; step < 100; step++) app.key('w');
-    await app.frame();
-    assert.equal(app.uniforms[16], 0, 'Cutaway off never supplies a bubble radius');
-    assert.ok(app.uniforms[14] > 0, 'ordinary Fly does not cross into solid material');
-    assert.ok(app.uniforms[14] < 1e-9, 'small clearances do not get stuck at the minimum movement step');
-    finalPositions.push(app.uniforms.slice(12, 15));
-  }
-  assert.deepEqual(finalPositions[0], finalPositions[1], 'stored bubble size cannot affect ordinary flight');
+  app.pose([0, 0, 0.00001]);
+  await app.frame();
+  for (let step = 0; step < 100; step++) app.key('w');
+  await app.frame();
+  assert.ok(app.uniforms[14] > 0, 'Fly does not cross into solid material');
+  assert.ok(app.uniforms[14] < 1e-9, 'small clearances do not get stuck at the minimum movement step');
 });

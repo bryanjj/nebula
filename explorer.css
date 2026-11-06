@@ -46,9 +46,3 @@ footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; pad
 .camera-mode button { border-color: transparent; background: transparent; }
 .camera-mode button[aria-pressed="true"] { background: #a9b5ff; color: #111722; }
 #flyReticle { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; transform: translate(-50%, -50%); border: 1px solid #ffffffb3; border-radius: 50%; box-shadow: 0 0 3px #000; pointer-events: none; }
-
-.fly-controls { display: flex; flex: 1 1 270px; align-items: end; gap: 12px; min-width: 0; }
-#cutawayButton[aria-pressed="true"] { background: #a9b5ff; color: #111722; }
-#bubbleSlider:disabled { opacity: .4; }
-
-#bubbleValue { flex-basis: 7ch; }
