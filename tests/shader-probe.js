@@ -140,8 +140,8 @@ export async function probeAdaptiveDetail(shader) {
   const adapter = await navigator.gpu.requestAdapter();
   const device = await adapter.requestDevice();
   const uniform = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  const output = device.createBuffer({ size: 48, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-  const readback = device.createBuffer({ size: 48, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  const output = device.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+  const readback = device.createBuffer({ size: 64, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   try {
     const module = device.createShaderModule({ code: shader + `
       @group(0) @binding(1) var<storage, read_write> results: array<f32>;
@@ -162,6 +162,10 @@ export async function probeAdaptiveDetail(shader) {
         results[9] = fractal_distance_at(vec3f(0.250025, 0, 0), 1, 0.0, 512);
         results[10] = fractal_distance_at(vec3f(0.250025, 0, 0), 1, 0.0, 1024);
         results[11] = get_escape_time(vec3f(0.2504, 0, 0), 1, 0.0, 1024);
+        results[12] = fractal_distance_at(vec3f(0.250005, 0, 0), 1, 0.0, 1024);
+        results[13] = fractal_distance_at(vec3f(0.250005, 0, 0), 1, 0.0, 2048);
+        results[14] = f32(fly_iterations(fly_epsilon(0.0, vec3f(0, 0, 0))));
+        results[15] = fractal_distance_at(vec3f(0, 0, 0), 1, 0.0, 2048);
       }
     ` });
     const pipeline = await device.createComputePipelineAsync({ layout: 'auto', compute: { module, entryPoint: 'probe' } });
@@ -187,7 +191,7 @@ export async function probeAdaptiveDetail(shader) {
       pass.setBindGroup(0, bindGroup);
       pass.dispatchWorkgroups(1);
       pass.end();
-      encoder.copyBufferToBuffer(output, 0, readback, 0, 48);
+      encoder.copyBufferToBuffer(output, 0, readback, 0, 64);
       device.queue.submit([encoder.finish()]);
       await readback.mapAsync(GPUMapMode.READ);
       samples.push(Array.from(new Float32Array(readback.getMappedRange())));

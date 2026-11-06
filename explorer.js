@@ -219,7 +219,7 @@ function navigationDistance(p) {
   ][mode];
   let za = 1, zb = 0, ca = 0, cb = 0, distance = 0;
   let checkpointA = a, checkpointB = b, checkpointAge = 0, checkpointPeriod = 1;
-  for (let i = 0; i < 1024; i++) {
+  for (let i = 0; i < 2048; i++) {
     [za, zb] = [2 * (a * za - b * zb), 2 * (a * zb + b * za)];
     [ca, cb] = [2 * (a * ca - b * cb) + 1, 2 * (a * cb + b * ca)];
     [a, b] = [a * a - b * b + c, 2 * a * b + d];
@@ -653,8 +653,8 @@ fn fly_epsilon(rayDistance: f32, point: vec3<f32>) -> f32 {
 fn fly_iterations(epsilon: f32) -> i32 {
   let base = clamp(80.0 + 40.0 * log2(0.001 / epsilon), 80.0, 512.0);
   // Spend the additional budget only below the old close-up accuracy floor.
-  let extra = 192.0 * max(0.0, log2(0.0000002 / epsilon));
-  return i32(min(1024.0, base + extra));
+  let extra = 384.0 * max(0.0, log2(0.0000002 / epsilon));
+  return i32(min(2048.0, base + extra));
 }
 
 // Escape coloring preserves the original first cycle and extends late escapes.

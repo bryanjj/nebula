@@ -634,6 +634,7 @@ test('ordinary Fly recognizes late-escaping space and keeps approaching a wall w
   app.input('clipSlider', '-3');
   assert.ok(app.distance([0.2504, 0, 0]) > 0, 'space escaping after 80 iterations is navigable');
   assert.ok(app.distance([0.250025, 0, 0]) > 0, 'space escaping after 512 iterations is navigable');
+  assert.ok(app.distance([0.250005, 0, 0]) > 0, 'space escaping after 1024 iterations is navigable');
   assert.equal(app.distance([0.25, 0, 0]), 0, 'solid material is still solid');
   app.pose([0.2516, 0, 0], 0, Math.PI / 2);
   await app.frame();

@@ -241,7 +241,11 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
       assert.ok(row.every(Number.isFinite));
       assert.equal(row[4], 0, 'true solid remains solid');
       assert.equal(row[5], row[6], 'early escape stays unchanged');
-      assert.ok(row[7] <= 1024, 'iteration work is bounded even at zero distance');
+      assert.ok(row[7] > 1024 && row[7] <= 2048, 'close-up budget extends beyond the previous ceiling');
+      assert.equal(row[12], 0, 'the previous 1024-iteration field fills this late escape');
+      assert.ok(row[13] > 0, '2048 iterations recognize the late escape as empty space');
+      assert.equal(row[14], 2048, 'the closest scales use the new bounded maximum');
+      assert.equal(row[15], 0, 'true solid remains solid at the higher limit');
       assert.ok(row[8] < 0.00000004, 'tiny close-ups are not limited by the old 2e-7 floor');
       assert.equal(row[9], 0, 'the previous 512-iteration limit fills this late escape');
       assert.ok(row[10] > row[8], 'the deeper budget can resolve it at this scale');
