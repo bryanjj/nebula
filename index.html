@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Explore three-dimensional slices of the four-dimensional Mandelbrot–Julia fractal with WebGPU.">
   <title>Nebula · 4D Fractal Explorer</title>
-  <link rel="stylesheet" href="explorer.css?v=3">
+  <link rel="stylesheet" href="explorer.css?v=8">
 </head>
 <body>
   <header>
@@ -32,10 +32,17 @@
       </div>
       <div class="range"><input id="clipSlider" type="range" min="-3" max="3" step="0.01" value="0"><output id="clipValue" for="clipSlider">0.00</output></div>
     </div>
-    <button id="resetButton" type="button" title="Restore the starting camera orientation and zoom">Reset view</button>
+    <div class="view-controls">
+      <div class="camera-mode" role="group" aria-label="Camera mode">
+        <button id="orbitButton" type="button" aria-pressed="true" title="Orbit around the fractal; return to your saved overview">Orbit</button>
+        <button id="flyButton" type="button" aria-pressed="false" title="Look around and fly into the fractal from here">Fly</button>
+      </div>
+      <button id="resetButton" type="button" title="Restore the starting camera orientation and zoom">Reset view</button>
+    </div>
   </section>
   <main id="canvas-wrap">
     <canvas id="gfx" tabindex="0" aria-label="Interactive 4D fractal slice" aria-describedby="help"></canvas>
+    <div id="flyReticle" aria-hidden="true" hidden></div>
     <svg id="axisGuide" viewBox="0 0 160 140" role="img" aria-label="Visible axes: X Re(c), Y Im(c), Z Im(z₀)">
       <g fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path id="axisXArrow" class="axis-x" d="M80 76 L130 101 M122 94 L130 101 L120 100" />
@@ -54,6 +61,6 @@
     <p id="status" role="status" aria-live="polite">Initializing WebGPU…</p>
     <button id="retryButton" type="button" hidden>Retry</button>
   </footer>
-  <script type="module" src="explorer.js?v=15"></script>
+  <script type="module" src="explorer.js?v=30"></script>
 </body>
 </html>

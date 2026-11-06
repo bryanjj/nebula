@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { probeDistances, referenceDistance } from './shader-probe.js';
+import { probeDistances, probeAdaptiveDetail, referenceDistance } from './shader-probe.js';
 import { chromium } from 'playwright';
 
 let server;
@@ -111,6 +111,35 @@ test('slider thumbs snap around zero without trapping arrow-key adjustments', as
   } finally { await page.close(); }
 });
 
+test('Fly controls fit on mobile and return to Orbit on refresh', async () => {
+  const page = await browser.newPage({ viewport: { width: 360, height: 780 } });
+  try {
+    await withoutGPU(page);
+    await page.goto(origin);
+    await page.getByRole('button', { name: 'Fly', exact: true }).click();
+    assert.equal(await page.locator('#flyButton').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('#flyReticle').isVisible(), true);
+    const canvasBox = await page.locator('#gfx').boundingBox();
+    const reticleBox = await page.locator('#flyReticle').boundingBox();
+    assert.ok(Math.abs(reticleBox.x + reticleBox.width / 2 - canvasBox.x - canvasBox.width / 2) < 0.5);
+    assert.ok(Math.abs(reticleBox.y + reticleBox.height / 2 - canvasBox.y - canvasBox.height / 2) < 0.5);
+    await page.locator('#gfx').focus();
+    assert.match(await page.locator('#help').innerText(), /Scroll or W\/S/);
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'gfx');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.locator('#gfx').press('w');
+    await page.getByRole('button', { name: 'Reset view', exact: true }).click();
+    assert.equal(await page.locator('#flyButton').getAttribute('aria-pressed'), 'true');
+    await page.getByRole('button', { name: 'Orbit', exact: true }).click();
+    assert.equal(await page.locator('#flyReticle').isVisible(), false);
+    assert.match(await page.locator('#help').innerText(), /Drag to orbit/);
+    await page.getByRole('button', { name: 'Fly', exact: true }).click();
+    await page.reload();
+    assert.equal(await page.locator('#orbitButton').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('#flyReticle').isVisible(), false);
+  } finally { await page.close(); }
+});
+
 test('refresh resets controls before the next slider input', async () => {
   const page = await browser.newPage();
   try {
@@ -187,6 +216,27 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     }
     const source = await readFile(new URL('../explorer.js', import.meta.url), 'utf8');
     const shader = source.split('const shaderCode = /* wgsl */`')[1].split('`;')[0];
+    const adaptive = await page.evaluate(probeAdaptiveDetail, shader);
+    assert.equal(adaptive[0][1], 80, 'distant surfaces retain the base iteration budget');
+    assert.ok(adaptive[1][0] < adaptive[0][0] && adaptive[1][1] > adaptive[0][1]);
+    assert.ok(adaptive[2][0] < adaptive[1][0] && adaptive[2][1] > adaptive[1][1]);
+    assert.ok(adaptive[3][0] < adaptive[1][0], 'more canvas pixels resolve finer features');
+    assert.equal(adaptive[1][2], 0, 'the coarse field fills a late-escaping point');
+    assert.ok(adaptive[2][3] > adaptive[2][0], 'refinement opens that point at the visible scale');
+    for (const row of adaptive) {
+      assert.ok(row.every(Number.isFinite));
+      assert.equal(row[4], 0, 'true solid remains solid');
+      assert.equal(row[5], row[6], 'early escape stays unchanged');
+      assert.ok(row[7] > 1024 && row[7] <= 2048, 'close-up budget extends beyond the previous ceiling');
+      assert.equal(row[12], 0, 'the previous 1024-iteration field fills this late escape');
+      assert.ok(row[13] > 0, '2048 iterations recognize the late escape as empty space');
+      assert.equal(row[14], 2048, 'the closest scales use the new bounded maximum');
+      assert.equal(row[15], 0, 'true solid remains solid at the higher limit');
+      assert.ok(row[8] < 0.00000004, 'tiny close-ups are not limited by the old 2e-7 floor');
+      assert.equal(row[9], 0, 'the previous 512-iteration limit fills this late escape');
+      assert.ok(row[10] > row[8], 'the deeper budget can resolve it at this scale');
+      assert.ok(row[11] > 1, 'late escapes retain color variation instead of becoming solid pink');
+    }
     const samples = await page.evaluate(probeDistances, shader);
     for (const sample of samples) {
       for (let mode = 0; mode < 4; mode++) {
@@ -212,6 +262,13 @@ test('real GPU compiles the shader and responds to controls', async (t) => {
     for (let i = 0; i < 32; i++) await page.keyboard.press('ArrowRight');
     await page.keyboard.press('+');
     await page.keyboard.press('ArrowLeft');
+    await page.getByRole('button', { name: 'Fly', exact: true }).click();
+    for (let i = 0; i < 50; i++) await page.keyboard.press('w');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('a');
+    await page.keyboard.press('e');
+    await page.getByRole('button', { name: 'Reset view', exact: true }).click();
+    await page.getByRole('button', { name: 'Orbit', exact: true }).click();
     await page.waitForTimeout(200);
     assert.equal(await page.locator('#status').getAttribute('data-error'), null);
     assert.deepEqual(errors, []);
